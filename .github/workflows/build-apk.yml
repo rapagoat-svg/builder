@@ -1,27 +1,35 @@
 name: Build APK
-on: 
+
+on:
   workflow_dispatch:
     inputs:
       zip_url:
         description: 'URL ZIP'
         required: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Download
-        run: wget -O a.zip "${{ github.event.inputs.zip_url }}"
-      - name: Extract
-        run: unzip a.zip
-      - name: Flutter
+      - name: Download ZIP
+        run: wget -O project.zip "${{ github.event.inputs.zip_url }}"
+        
+      - name: Extract ZIP
+        run: unzip project.zip
+        
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
-      - name: Build
+        with:
+          flutter-version: '3.22.0'
+          
+      - name: Find and Build APK
         run: |
-          DIR=$(find . -name "pubspec.yaml" -type f | head -1 | xargs dirname)
-          cd $DIR
+          PROJECT_DIR=$(find . -name "pubspec.yaml" -type f | head -1 | xargs dirname)
+          cd "$PROJECT_DIR"
           flutter pub get
-          flutter build apk
-      - name: Upload
+          flutter build apk --release
+          
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release
