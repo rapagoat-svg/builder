@@ -1,0 +1,23 @@
+name: Build APK
+on:
+  workflow_dispatch:
+    inputs:
+      zip_url:
+        description: 'URL ZIP'
+        required: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: wget -O a.zip "${{ github.event.inputs.zip_url }}"
+      - run: unzip a.zip
+      - uses: subosito/flutter-action@v2
+      - run: |
+          PROJECT=$(find . -name "pubspec.yaml" | head -1 | xargs dirname)
+          cd $PROJECT
+          flutter pub get
+          flutter build apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: build/app/outputs/flutter-apk/app-release.apk
