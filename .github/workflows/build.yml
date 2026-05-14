@@ -24,13 +24,12 @@ jobs:
         run: |
           PROJECT_PATH=$(find project -name "pubspec.yaml" -type f | head -1 | xargs dirname)
           echo "PROJECT_PATH=$PROJECT_PATH" >> $GITHUB_ENV
-          echo "Found project at: $PROJECT_PATH"
+          echo "Found at: $PROJECT_PATH"
           
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.0'
-          channel: 'stable'
           
       - name: Setup Java
         uses: actions/setup-java@v3
