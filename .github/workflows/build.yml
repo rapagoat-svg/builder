@@ -20,15 +20,15 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         
-      - name: Find project and build
+      - name: Build APK
         run: |
           PROJECT=$(find project -name "pubspec.yaml" | head -1 | xargs dirname)
-          cd $PROJECT
+          cd "$PROJECT"
           flutter pub get
           flutter build apk --release
-          
+        
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app
-          path: project/**/build/app/outputs/flutter-apk/*.apk
+          path: "**/build/app/outputs/flutter-apk/*.apk"
