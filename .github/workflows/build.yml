@@ -4,31 +4,57 @@ on:
   workflow_dispatch:
     inputs:
       zip_url:
-        description: 'URL ZIP'
+        description: 'URL ZIP file'
         required: true
+        type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
     steps:
       - name: Download ZIP
-        run: wget -O a.zip "${{ github.event.inputs.zip_url }}"
+        run: wget -O project.zip "${{ github.event.inputs.zip_url }}"
         
       - name: Extract ZIP
-        run: unzip a.zip -d project
+        run: unzip project.zip -d project
         
+      - name: Find Flutter project
+        run: |
+          PROJECT_PATH=$(find project -name "pubspec.yaml" -type f | head -1 | xargs dirname)
+          echo "PROJECT_PATH=$PROJECT_PATH" >> $GITHUB_ENV
+          echo "Found project at: $PROJECT_PATH"
+          
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+          
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
         
+      - name: Get dependencies
+        run: |
+          cd ${{ env.PROJECT_PATH }}
+          flutter clean
+          flutter pub get
+          
       - name: Build APK
         run: |
-          PROJECT=$(find project -name "pubspec.yaml" | head -1 | xargs dirname)
-          cd "$PROJECT"
-          flutter pub get
+          cd ${{ env.PROJECT_PATH }}
           flutter build apk --release
-        
+          
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app
-          path: "**/build/app/outputs/flutter-apk/*.apk"
+          name: app-release
+          path: ${{ env.PROJECT_PATH }}/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7
