@@ -42,10 +42,6 @@ jobs:
         with:
           flutter-version: '3.22.0'
           channel: 'stable'
-          cache: true
-
-      - name: Flutter Version
-        run: flutter --version
 
       - name: Download Project ZIP
         run: |
@@ -56,7 +52,6 @@ jobs:
             exit 1
           fi
           echo "ZIP file downloaded successfully"
-          ls -la project.zip
 
       - name: Extract ZIP File
         run: |
@@ -69,17 +64,15 @@ jobs:
         id: finder
         run: |
           cd project
+          # Cari pubspec.yaml (handle spasi dengan -print0)
           PROJECT_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
           if [ -z "$PROJECT_DIR" ]; then
-            echo "Error: pubspec.yaml not found! Invalid Flutter project."
+            echo "Error: pubspec.yaml not found!"
             exit 1
           fi
+          # Escape path untuk handle spasi
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_OUTPUT
           echo "Found Flutter project at: $PROJECT_DIR"
-          
-          PROJECT_NAME=$(grep "^name:" "$PROJECT_DIR/pubspec.yaml" | cut -d' ' -f2)
-          echo "PROJECT_NAME=$PROJECT_NAME" >> $GITHUB_OUTPUT
-          echo "Project name: $PROJECT_NAME"
 
       - name: Update Android SDK Version
         run: |
@@ -88,41 +81,43 @@ jobs:
           
           echo "Setting Android SDK to API $SDK_VERSION"
           
-          # Update build.gradle
+          # Handle path dengan spasi
           if [ -f "$PROJECT_DIR/android/app/build.gradle" ]; then
             sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" "$PROJECT_DIR/android/app/build.gradle"
             sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" "$PROJECT_DIR/android/app/build.gradle"
             echo "build.gradle updated"
           fi
           
-          # Untuk build.gradle.kts (Kotlin DSL)
           if [ -f "$PROJECT_DIR/android/app/build.gradle.kts" ]; then
             sed -i "s/compileSdk = [0-9]*/compileSdk = $SDK_VERSION/" "$PROJECT_DIR/android/app/build.gradle.kts"
             sed -i "s/targetSdk = [0-9]*/targetSdk = $SDK_VERSION/" "$PROJECT_DIR/android/app/build.gradle.kts"
             echo "build.gradle.kts updated"
           fi
           
-          # Buat local.properties
+          mkdir -p "$PROJECT_DIR/android"
           echo "sdk.dir=$ANDROID_HOME" > "$PROJECT_DIR/android/local.properties"
           echo "local.properties created"
 
       - name: Flutter Clean
         run: |
-          cd project/${{ steps.finder.outputs.PROJECT_DIR }}
-          flutter clean
-          rm -rf .dart_tool/ .gradle/ build/
+          PROJECT_DIR="${{ steps.finder.outputs.PROJECT_DIR }}"
+          cd "$PROJECT_DIR"
+          flutter clean || true
+          rm -rf .dart_tool .gradle build 2>/dev/null || true
           echo "Flutter clean completed"
 
       - name: Flutter Pub Get
         run: |
-          cd project/${{ steps.finder.outputs.PROJECT_DIR }}
+          PROJECT_DIR="${{ steps.finder.outputs.PROJECT_DIR }}"
+          cd "$PROJECT_DIR"
           flutter pub get
           echo "Dependencies installed"
 
       - name: Build APK
         id: build
         run: |
-          cd project/${{ steps.finder.outputs.PROJECT_DIR }}
+          PROJECT_DIR="${{ steps.finder.outputs.PROJECT_DIR }}"
+          cd "$PROJECT_DIR"
           
           if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
             echo "Building RELEASE APK..."
@@ -139,6 +134,7 @@ jobs:
             exit 1
           fi
           
+          # Escape path untuk output
           echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
           APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
           echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
@@ -148,7 +144,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-${{ github.event.inputs.build_mode }}-sdk${{ github.event.inputs.sdk_version }}
-          path: project/${{ steps.finder.outputs.PROJECT_DIR }}/${{ steps.build.outputs.APK_PATH }}
+          path: ${{ steps.finder.outputs.PROJECT_DIR }}/${{ steps.build.outputs.APK_PATH }}
           retention-days: 7
 
       - name: Upload Build Logs (if failed)
@@ -157,7 +153,7 @@ jobs:
         with:
           name: build-logs
           path: |
-            project/${{ steps.finder.outputs.PROJECT_DIR }}/build/
+            ${{ steps.finder.outputs.PROJECT_DIR }}/build/
             ~/.gradle/
           retention-days: 3
 
@@ -167,9 +163,9 @@ jobs:
           echo "Build Summary"
           echo "=========================================="
           echo "Job ID: ${{ github.event.inputs.job_id }}"
-          echo "Project: ${{ steps.finder.outputs.PROJECT_NAME }}"
           echo "SDK Version: ${{ github.event.inputs.sdk_version }}"
           echo "Build Mode: ${{ github.event.inputs.build_mode }}"
           echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
           echo "Status: SUCCESS"
           echo "=========================================="
+          
