@@ -1,4 +1,4 @@
-name: Build APK (No Flutter Install)
+name: Build APK Flutter
 
 on:
   workflow_dispatch:
@@ -25,37 +25,66 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    container:
-      image: cirrusci/flutter:3.22.0
-      
+    timeout-minutes: 30
+
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: 'stable'
+
+      - name: Flutter Doctor
+        run: flutter doctor -v
+
       - name: Download ZIP
         run: |
           curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
-          mkdir -p project
           unzip -q project.zip -d project/
-      
-      - name: Find Flutter Project
+          ls -la project/
+
+      - name: Find Project
         id: finder
         run: |
           cd project
           PROJECT_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "pubspec.yaml not found!"
+            exit 1
+          fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_OUTPUT
-          echo "Found: $PROJECT_DIR"
-      
-      - name: Setup SDK Version
+          echo "Found at: $PROJECT_DIR"
+
+      - name: Fix Android SDK Version
         run: |
           cd project/${{ steps.finder.outputs.PROJECT_DIR }}
-          sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion ${{ github.event.inputs.sdk_version }}/" android/app/build.gradle
-          sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion ${{ github.event.inputs.sdk_version }}/" android/app/build.gradle
-      
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i 's/compileSdkVersion [0-9]*/compileSdkVersion ${{ github.event.inputs.sdk_version }}/' android/app/build.gradle
+            sed -i 's/targetSdkVersion [0-9]*/targetSdkVersion ${{ github.event.inputs.sdk_version }}/' android/app/build.gradle
+          fi
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: Flutter Clean
+        run: |
+          cd project/${{ steps.finder.outputs.PROJECT_DIR }}
+          flutter clean
+
       - name: Flutter Pub Get
         run: |
           cd project/${{ steps.finder.outputs.PROJECT_DIR }}
           flutter pub get
-      
+
       - name: Build APK
+        id: build
         run: |
           cd project/${{ steps.finder.outputs.PROJECT_DIR }}
           if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
@@ -63,9 +92,10 @@ jobs:
           else
             flutter build apk --debug
           fi
-      
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-${{ github.event.inputs.build_mode }}
           path: project/${{ steps.finder.outputs.PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
+          retention-days: 7
