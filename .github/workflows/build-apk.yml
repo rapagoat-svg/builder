@@ -1,4 +1,4 @@
-name: Build APK Flutter
+name: Build APK
 
 on:
   workflow_dispatch:
@@ -11,19 +11,12 @@ on:
         description: 'Android SDK Version'
         required: true
         default: '34'
-        type: choice
-        options:
-          - '33'
-          - '34'
-          - '35'
+        type: string
       build_mode:
         description: 'Build Mode'
         required: true
         default: 'release'
-        type: choice
-        options:
-          - 'release'
-          - 'debug'
+        type: string
       job_id:
         description: 'Job ID'
         required: true
@@ -32,184 +25,57 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     
     steps:
-    # ============ 1. CHECKOUT ============
-    - name: Checkout Repository
-      uses: actions/checkout@v4
-    
-    # ============ 2. SETUP JAVA ============
-    - name: Setup Java JDK 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'zulu'
-        java-version: '17'
-    
-    # ============ 3. SETUP ANDROID SDK ============
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-      with:
-        packages: >
-          platforms;android-${{ github.event.inputs.sdk_version }}
-          build-tools;34.0.0
-          platform-tools
-          emulator
-    
-    # ============ 4. VERIFY ANDROID SDK ============
-    - name: Verify Android SDK
-      run: |
-        echo "ANDROID_HOME: $ANDROID_HOME"
-        sdkmanager --list | head -20
-        echo "Android SDK API ${{ github.event.inputs.sdk_version }} installed"
-    
-    # ============ 5. SETUP FLUTTER ============
-    - name: Setup Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.22.0'
-        channel: 'stable'
-        cache: true
-    
-    # ============ 6. VERIFY FLUTTER ============
-    - name: Verify Flutter
-      run: |
-        flutter --version
-        flutter doctor -v
-    
-    # ============ 7. ACCEPT ANDROID LICENSES ============
-    - name: Accept Android Licenses
-      run: |
-        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-      continue-on-error: true
-    
-    # ============ 8. DOWNLOAD PROJECT ZIP ============
-    - name: Download Project ZIP
-      run: |
-        echo "Downloading from: ${{ github.event.inputs.zip_url }}"
-        wget -O project.zip "${{ github.event.inputs.zip_url }}" --timeout=300 --tries=3
-        if [ ! -f project.zip ]; then
-          echo "Error: Failed to download ZIP file"
-          exit 1
-        fi
-        echo "ZIP file downloaded successfully"
-        ls -la project.zip
-    
-    # ============ 9. EXTRACT PROJECT ============
-    - name: Extract Project
-      run: |
-        mkdir -p project
-        unzip -q project.zip -d project/
-        rm project.zip
-        echo "Extracted files:"
-        ls -la project/
-    
-    # ============ 10. FIND FLUTTER PROJECT ROOT ============
-    - name: Find Flutter Project Root
-      id: finder
-      run: |
-        cd project
-        # Cari pubspec.yaml
-        PROJECT_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
-        if [ -z "$PROJECT_DIR" ]; then
-          echo "Error: pubspec.yaml not found! Invalid Flutter project."
-          exit 1
-        fi
-        echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_OUTPUT
-        echo "Found Flutter project at: $PROJECT_DIR"
-        
-        # Baca nama project dari pubspec.yaml
-        PROJECT_NAME=$(grep "^name:" "$PROJECT_DIR/pubspec.yaml" | cut -d' ' -f2)
-        echo "PROJECT_NAME=$PROJECT_NAME" >> $GITHUB_OUTPUT
-        echo "Project name: $PROJECT_NAME"
-    
-    # ============ 11. UPDATE ANDROID SDK VERSION ============
-    - name: Update Android SDK Version in build.gradle
-      run: |
-        PROJECT_DIR="${{ steps.finder.outputs.PROJECT_DIR }}"
-        SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-        
-        # Update build.gradle
-        if [ -f "$PROJECT_DIR/android/app/build.gradle" ]; then
-          echo "Updating compileSdkVersion to $SDK_VERSION"
-          sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" "$PROJECT_DIR/android/app/build.gradle"
-          sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" "$PROJECT_DIR/android/app/build.gradle"
-          echo "build.gradle updated"
-        fi
-        
-        # Buat local.properties
-        echo "sdk.dir=$ANDROID_HOME" > "$PROJECT_DIR/android/local.properties"
-        echo "local.properties created"
-    
-    # ============ 12. FLUTTER CLEAN ============
-    - name: Flutter Clean
-      run: |
-        cd project/${{ steps.finder.outputs.PROJECT_DIR }}
-        flutter clean
-        echo "Flutter clean completed"
-    
-    # ============ 13. FLUTTER PUB GET ============
-    - name: Flutter Pub Get
-      run: |
-        cd project/${{ steps.finder.outputs.PROJECT_DIR }}
-        flutter pub get
-        echo "Dependencies installed"
-    
-    # ============ 14. BUILD APK ============
-    - name: Build APK
-      id: build
-      run: |
-        cd project/${{ steps.finder.outputs.PROJECT_DIR }}
-        
-        if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
-          echo "Building RELEASE APK..."
-          flutter build apk --release
-          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
-        else
-          echo "Building DEBUG APK..."
-          flutter build apk --debug
-          APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
-        fi
-        
-        if [ ! -f "$APK_PATH" ]; then
-          echo "Error: APK not found at $APK_PATH"
-          exit 1
-        fi
-        
-        echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-        APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
-        echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
-        echo "APK built successfully! Size: $APK_SIZE"
-    
-    # ============ 15. UPLOAD APK AS ARTIFACT ============
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-${{ github.event.inputs.build_mode }}-sdk${{ github.event.inputs.sdk_version }}
-        path: project/${{ steps.finder.outputs.PROJECT_DIR }}/${{ steps.build.outputs.APK_PATH }}
-        retention-days: 7
-    
-    # ============ 16. UPLOAD BUILD LOGS (jika gagal) ============
-    - name: Upload Build Logs
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-logs
-        path: |
-          project/${{ steps.finder.outputs.PROJECT_DIR }}/build/
-          ~/.gradle/
-        retention-days: 3
-    
-    # ============ 17. NOTIFICATION ============
-    - name: Build Summary
-      run: |
-        echo "=========================================="
-        echo "Build Summary"
-        echo "=========================================="
-        echo "Job ID: ${{ github.event.inputs.job_id }}"
-        echo "Project: ${{ steps.finder.outputs.PROJECT_NAME }}"
-        echo "SDK Version: ${{ github.event.inputs.sdk_version }}"
-        echo "Build Mode: ${{ github.event.inputs.build_mode }}"
-        echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
-        echo "=========================================="
-        echo "Build completed successfully!"
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      
+      - name: Download ZIP
+        run: |
+          wget -O project.zip "${{ github.event.inputs.zip_url }}"
+          unzip -q project.zip -d project/
+          ls -la project/
+      
+      - name: Find Flutter Project
+        id: finder
+        run: |
+          cd project
+          PROJECT_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_OUTPUT
+          echo "Found project at: $PROJECT_DIR"
+      
+      - name: Flutter Clean
+        run: |
+          cd project/${{ steps.finder.outputs.PROJECT_DIR }}
+          flutter clean
+      
+      - name: Flutter Pub Get
+        run: |
+          cd project/${{ steps.finder.outputs.PROJECT_DIR }}
+          flutter pub get
+      
+      - name: Build APK
+        run: |
+          cd project/${{ steps.finder.outputs.PROJECT_DIR }}
+          if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
+            flutter build apk --release
+          else
+            flutter build apk --debug
+          fi
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ github.event.inputs.build_mode }}
+          path: project/${{ steps.finder.outputs.PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
