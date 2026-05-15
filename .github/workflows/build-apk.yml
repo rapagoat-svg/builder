@@ -41,46 +41,69 @@ jobs:
         distribution: 'zulu'
         java-version: '17'
     
-    - name: Download ZIP
+    - name: Download and Extract ZIP
       run: |
         wget -O project.zip "${{ github.event.inputs.zip_url }}"
-        unzip project.zip -d project/
+        mkdir -p project
+        unzip -q project.zip -d project/
+        ls -la project/
     
-    - name: Find Flutter Project
+    - name: Find Flutter Project Root
+      id: finder
       run: |
-        cd project/
-        # Cari pubspec.yaml
+        cd project
         PROJECT_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
-        echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+        echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_OUTPUT
+        echo "Found project at: $PROJECT_DIR"
     
-    - name: Setup Android SDK
+    - name: Setup Android SDK Version
       run: |
+        PROJECT_DIR="${{ steps.finder.outputs.PROJECT_DIR }}"
         echo "Setting Android SDK to API ${{ github.event.inputs.sdk_version }}"
-        cd ${{ env.PROJECT_DIR }}/android/
-        sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion ${{ github.event.inputs.sdk_version }}/" app/build.gradle
-        sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion ${{ github.event.inputs.sdk_version }}/" app/build.gradle
+        
+        # Update build.gradle
+        if [ -f "$PROJECT_DIR/android/app/build.gradle" ]; then
+          sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion ${{ github.event.inputs.sdk_version }}/" "$PROJECT_DIR/android/app/build.gradle"
+          sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion ${{ github.event.inputs.sdk_version }}/" "$PROJECT_DIR/android/app/build.gradle"
+          echo "Updated build.gradle"
+        fi
+        
+        # Update local.properties
+        echo "sdk.dir=$ANDROID_HOME" > "$PROJECT_DIR/android/local.properties"
     
     - name: Flutter Clean
       run: |
-        cd ${{ env.PROJECT_DIR }}
+        cd project/${{ steps.finder.outputs.PROJECT_DIR }}
         flutter clean
     
     - name: Flutter Pub Get
       run: |
-        cd ${{ env.PROJECT_DIR }}
+        cd project/${{ steps.finder.outputs.PROJECT_DIR }}
         flutter pub get
     
     - name: Build APK
       run: |
-        cd ${{ env.PROJECT_DIR }}
+        cd project/${{ steps.finder.outputs.PROJECT_DIR }}
         if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
           flutter build apk --release
         else
           flutter build apk --debug
         fi
     
+    - name: Find APK
+      id: apk
+      run: |
+        cd project/${{ steps.finder.outputs.PROJECT_DIR }}
+        if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+        else
+          APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
+        fi
+        echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
+        echo "APK found at: $APK_PATH"
+    
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: app-${{ github.event.inputs.build_mode }}
-        path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
+        path: project/${{ steps.finder.outputs.PROJECT_DIR }}/${{ steps.apk.outputs.APK_PATH }}
