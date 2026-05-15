@@ -37,7 +37,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter SDK (Master Channel - Dart 3.8.1)
+      - name: Setup Flutter SDK with Dart 3.8.1
         uses: subosito/flutter-action@v2
         with:
           channel: 'master'
@@ -48,8 +48,7 @@ jobs:
           unzip -q project.zip
           rm project.zip
 
-      - name: Find Flutter Project
-        id: finder
+      - name: Find and Prepare Project
         run: |
           PROJ_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
           if [ -z "$PROJ_DIR" ]; then
@@ -57,12 +56,26 @@ jobs:
             exit 1
           fi
           PROJ_DIR="${PROJ_DIR#./}"
-          echo "PROJECT_DIR=$PROJ_DIR" >> $GITHUB_OUTPUT
-          
-          if [ "$PROJ_DIR" != "." ]; then
+          if [ "$PROJ_DIR" != "." ] && [ -n "$PROJ_DIR" ]; then
             mv "$PROJ_DIR"/* ./ 2>/dev/null || true
             rm -rf "$PROJ_DIR"
           fi
+          echo "Project prepared"
+
+      - name: Keep SDK 3.8.1 and Remove Problematic Packages
+        run: |
+          # Keep original SDK requirement
+          echo "Original SDK requirement:"
+          cat pubspec.yaml | grep "sdk:"
+          
+          # Remove icon_data if exists (temporary fix)
+          sed -i '/icon_data/d' pubspec.yaml
+          
+          # Also remove any problematic packages
+          sed -i '/flutter_lints/d' pubspec.yaml
+          
+          echo "After cleanup:"
+          cat pubspec.yaml
 
       - name: Update Android SDK Version
         run: |
@@ -72,6 +85,9 @@ jobs:
             sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" android/app/build.gradle
           fi
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: Clean Flutter
+        run: flutter clean
 
       - name: Flutter Pub Get
         run: flutter pub get
@@ -87,11 +103,21 @@ jobs:
             APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
           fi
           
+          if [ ! -f "$APK_PATH" ]; then
+            if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
+              APK_PATH="build/app/outputs/apk/release/app-release.apk"
+            else
+              echo "APK not found!"
+              exit 1
+            fi
+          fi
+          
           echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
+          ls -lh "$APK_PATH"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-${{ github.event.inputs.build_mode }}
           path: ${{ steps.build.outputs.APK_PATH }}
-          retention-days: 7
+          retention-days: 7        
