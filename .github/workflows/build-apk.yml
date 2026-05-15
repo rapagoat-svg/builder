@@ -86,7 +86,7 @@ jobs:
             echo "Current SDK requirement: $CURRENT_SDK"
             
             # Always fix to compatible version
-            sed -i 's/sdk: .*/sdk: ">=3.0.0 <4.0.0"/' project/pubspec.yaml
+            sed -i 's/sdk: .*/sdk: ^3.8.1/' project/pubspec.yaml
             
             echo "Fixed pubspec.yaml:"
             cat project/pubspec.yaml | grep "sdk:"
