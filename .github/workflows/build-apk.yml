@@ -44,188 +44,67 @@ jobs:
 
       - name: Download Project ZIP
         run: |
-          echo "Downloading from: ${{ github.event.inputs.zip_url }}"
           curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
-          if [ ! -f project.zip ]; then
-            echo "Error: Failed to download ZIP file"
-            exit 1
-          fi
           unzip -q project.zip
           rm project.zip
-          echo "Extracted successfully"
 
-      - name: Find and Move Flutter Project to Root
-        id: finder
+      - name: Find and Move Flutter Project
         run: |
           PROJ_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
-          if [ -z "$PROJ_DIR" ]; then
-            echo "Error: pubspec.yaml not found!"
-            exit 1
-          fi
           PROJ_DIR="${PROJ_DIR#./}"
-          echo "Found project at: $PROJ_DIR"
-
           if [ "$PROJ_DIR" != "." ] && [ -n "$PROJ_DIR" ]; then
-            echo "Moving contents to root..."
             mv "$PROJ_DIR"/* ./ 2>/dev/null || true
-            mv "$PROJ_DIR"/.[!.]* ./ 2>/dev/null || true
             rm -rf "$PROJ_DIR"
           fi
-          echo "Project moved to root successfully"
-          ls -la
 
-      # ─── PERBAIKAN UTAMA: ganti sed dengan Python ───────────────────────
-      - name: Fix pubspec.yaml - SDK and Dependencies
+      - name: FORCE FIX pubspec.yaml (Remove invalid lines)
         run: |
-          echo "===== ORIGINAL pubspec.yaml ====="
+          echo "===== ORIGINAL ====="
+          cat pubspec.yaml
+          
+          # Remove invalid "android: true" line
+          sed -i '/android:/d' pubspec.yaml
+          sed -i '/^\s*android:/d' pubspec.yaml
+          
+          # Fix SDK
+          sed -i 's/sdk: .*/sdk: ">=3.0.0 <4.0.0"/' pubspec.yaml
+          
+          # Remove problematic dependencies
+          sed -i '/font_awesome_flutter/d' pubspec.yaml
+          sed -i '/icon_data/d' pubspec.yaml
+          sed -i '/flutter_lints/d' pubspec.yaml
+          
+          # Fix any malformed lines
+          sed -i 's/^  [0-9]/  - /g' pubspec.yaml
+          
+          echo "===== FIXED ====="
           cat pubspec.yaml
 
-          python3 << 'EOF'
-          import re, sys
-
-          with open("pubspec.yaml", "r") as f:
-              content = f.read()
-
-          # 1) Perbaiki SDK constraint supaya support Dart 3.8.1
-          content = re.sub(
-              r'(^\s*sdk:\s*)["\']?[^"\'\n#]+["\']?',
-              r'\1">=3.0.0 <4.0.0"',
-              content,
-              flags=re.MULTILINE
-          )
-
-          # 2) Hapus dependency beserta seluruh sub-key-nya (blok multi-baris)
-          bad_deps = [
-              "font_awesome_flutter", "icon_data", "flutter_lints",
-              "flutter_native_splash", "flutter_launcher_icons",
-              "pretty_dio_logger", "dio", "http",
-          ]
-          for dep in bad_deps:
-              # Cocokkan nama dep + semua baris indented di bawahnya
-              content = re.sub(
-                  rf'^( {{2,4}}){re.escape(dep)}\b.*?(?=\n\1\S|\n\S|\Z)',
-                  '',
-                  content,
-                  flags=re.MULTILINE | re.DOTALL
-              )
-
-          # 3) Bersihkan baris kosong berlebih
-          content = re.sub(r'\n{3,}', '\n\n', content)
-
-          # 4) Pastikan cupertino_icons ada
-          if "cupertino_icons" not in content:
-              content = re.sub(
-                  r'(^dependencies:\s*\n)',
-                  r'\1  cupertino_icons: ^1.0.6\n',
-                  content,
-                  flags=re.MULTILINE
-              )
-
-          with open("pubspec.yaml", "w") as f:
-              f.write(content)
-
-          print("pubspec.yaml berhasil diperbaiki")
-          EOF
-
-          echo "===== FIXED pubspec.yaml ====="
-          cat pubspec.yaml
-      # ────────────────────────────────────────────────────────────────────
-
-      - name: Update Android SDK Version in build.gradle
+      - name: Update Android SDK Version
         run: |
           SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-
           if [ -f "android/app/build.gradle" ]; then
             sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" android/app/build.gradle
             sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" android/app/build.gradle
-            sed -i "s/minSdkVersion [0-9]*/minSdkVersion 21/" android/app/build.gradle
-            echo "build.gradle updated"
           fi
-
-          if [ -f "android/app/build.gradle.kts" ]; then
-            sed -i "s/compileSdk = [0-9]*/compileSdk = $SDK_VERSION/" android/app/build.gradle.kts
-            sed -i "s/targetSdk = [0-9]*/targetSdk = $SDK_VERSION/" android/app/build.gradle.kts
-            echo "build.gradle.kts updated"
-          fi
-
-          mkdir -p android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-          echo "local.properties created"
 
-      - name: Clean Flutter Project
-        run: |
-          flutter clean || true
-          rm -rf .dart_tool .gradle build pubspec.lock 2>/dev/null || true
-          echo "Clean completed"
+      - name: Clean Flutter
+        run: flutter clean || true
 
-      - name: Get Flutter Dependencies
-        run: |
-          flutter pub get
-          if [ $? -ne 0 ]; then
-            echo "Pub get failed, trying with --no-example..."
-            flutter pub get --no-example
-          fi
-          echo "Dependencies resolved"
+      - name: Flutter Pub Get
+        run: flutter pub get
 
       - name: Build APK
         id: build
         run: |
-          if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
-            echo "Building RELEASE APK..."
-            flutter build apk --release
-            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
-          else
-            echo "Building DEBUG APK..."
-            flutter build apk --debug
-            APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
-          fi
-
-          if [ ! -f "$APK_PATH" ]; then
-            if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
-              APK_PATH="build/app/outputs/apk/release/app-release.apk"
-            elif [ -f "build/app/outputs/apk/debug/app-debug.apk" ]; then
-              APK_PATH="build/app/outputs/apk/debug/app-debug.apk"
-            else
-              echo "ERROR: APK not found!"
-              find . -name "*.apk" 2>/dev/null
-              exit 1
-            fi
-          fi
-
+          flutter build apk --release
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
           echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-          APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
-          echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
-          echo "✅ APK built successfully! Size: $APK_SIZE"
-          ls -lh "$APK_PATH"
 
-      - name: Upload APK Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ github.event.inputs.build_mode }}-sdk${{ github.event.inputs.sdk_version }}
+          name: app-release
           path: ${{ steps.build.outputs.APK_PATH }}
-          retention-days: 7
-
-      - name: Upload Debug Logs (if failed)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-logs
-          path: |
-            pubspec.yaml
-            android/app/build.gradle
-            build/
-            .dart_tool/
-          retention-days: 3
-
-      - name: Build Summary
-        run: |
-          echo "=========================================="
-          echo "✅ BUILD SUMMARY ✅"
-          echo "=========================================="
-          echo "Job ID: ${{ github.event.inputs.job_id }}"
-          echo "Project Name: $(grep '^name:' pubspec.yaml | cut -d' ' -f2)"
-          echo "SDK Version: ${{ github.event.inputs.sdk_version }}"
-          echo "Build Mode: ${{ github.event.inputs.build_mode }}"
-          echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
-          echo "Status: SUCCESS"
-          echo "=========================================="          
+          retention-days: 7                    
