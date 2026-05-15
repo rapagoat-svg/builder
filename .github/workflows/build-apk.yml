@@ -30,19 +30,15 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.0'
-      - name: Download
-        run: |
+      - run: |
           curl -L -o a.zip "${{ inputs.zip_url }}"
           unzip -q a.zip -d p
-      - name: Build
-        run: |
           cd p
           DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
           cd "$DIR"
           flutter pub get
           flutter build apk --release
-      - name: Upload
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: app
           path: p/**/build/app/outputs/flutter-apk/*.apk
