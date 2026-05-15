@@ -144,14 +144,16 @@ jobs:
           import os, re, glob
 
           # Map FontAwesomeIcons -> Icons (Material) pengganti
+          # Semua value dipastikan adalah icon yang BENAR-BENAR ADA di Flutter Material Icons
           fa_icon_map = {
               "FontAwesomeIcons.exclamationTriangle": "Icons.warning_amber_rounded",
               "FontAwesomeIcons.exclamationCircle":  "Icons.error_outline",
               "FontAwesomeIcons.exclamation":        "Icons.priority_high",
               "FontAwesomeIcons.checkCircle":        "Icons.check_circle_outline",
+              "FontAwesomeIcons.checkDouble":        "Icons.done_all",
               "FontAwesomeIcons.check":              "Icons.check",
               "FontAwesomeIcons.times":              "Icons.close",
-              "FontAwesomeIcons.timesCircle":        "Icons.cancel_outlined",
+              "FontAwesomeIcons.timesCircle":        "Icons.cancel",
               "FontAwesomeIcons.home":               "Icons.home",
               "FontAwesomeIcons.user":               "Icons.person",
               "FontAwesomeIcons.users":              "Icons.group",
@@ -220,7 +222,7 @@ jobs:
               "FontAwesomeIcons.redo":               "Icons.redo",
               "FontAwesomeIcons.undo":               "Icons.undo",
               "FontAwesomeIcons.save":               "Icons.save",
-              "FontAwesomeIcons.copy":               "Icons.copy",
+              "FontAwesomeIcons.copy":               "Icons.copy_all",
               "FontAwesomeIcons.cut":                "Icons.content_cut",
               "FontAwesomeIcons.paste":              "Icons.content_paste",
               "FontAwesomeIcons.print":              "Icons.print",
@@ -337,15 +339,11 @@ jobs:
                   # Hapus import font_awesome_flutter
                   content = re.sub(
                       r"^import\s+'package:font_awesome_flutter/[^']*';\s*\n?",
-                      '',
-                      content,
-                      flags=re.MULTILINE
+                      '', content, flags=re.MULTILINE
                   )
                   content = re.sub(
                       r'^import\s+"package:font_awesome_flutter/[^"]*";\s*\n?',
-                      '',
-                      content,
-                      flags=re.MULTILINE
+                      '', content, flags=re.MULTILINE
                   )
 
                   # Hapus import package lain yang dihapus
@@ -353,22 +351,18 @@ jobs:
                               'flutter_native_splash', 'flutter_launcher_icons', 'icon_data']:
                       content = re.sub(
                           rf"^import\s+'package:{pkg}/[^']*';\s*\n?",
-                          '',
-                          content,
-                          flags=re.MULTILINE
+                          '', content, flags=re.MULTILINE
                       )
                       content = re.sub(
                           rf'^import\s+"package:{pkg}/[^"]*";\s*\n?',
-                          '',
-                          content,
-                          flags=re.MULTILINE
+                          '', content, flags=re.MULTILINE
                       )
 
-                  # Ganti FontAwesomeIcons.xxx -> Icons.xxx
+                  # Ganti FontAwesomeIcons.xxx -> Icons.xxx (dari map)
                   for fa_icon, material_icon in fa_icon_map.items():
                       content = content.replace(fa_icon, material_icon)
 
-                  # Ganti sisa FontAwesomeIcons.apapun yang tidak ada di map
+                  # Ganti sisa FontAwesomeIcons.apapun yang tidak ada di map -> Icons.widgets
                   content = re.sub(
                       r'FontAwesomeIcons\.(\w+)',
                       r'Icons.widgets',
@@ -377,6 +371,14 @@ jobs:
 
                   # Ganti FaIcon(...) -> Icon(...)
                   content = re.sub(r'\bFaIcon\s*\(', 'Icon(', content)
+
+                  # Fix IOClient dan http-related usage
+                  # Hapus import dart:io jika dipakai untuk IOClient saja tidak perlu,
+                  # tapi stub IOClient agar tidak error compile
+                  if 'IOClient' in content or 'HttpClient' in content:
+                      # Tambah stub di atas file jika belum ada import dart:io
+                      if "import 'dart:io';" not in content and 'import "dart:io"' not in content:
+                          content = "import 'dart:io';\n" + content
 
                   if content != original:
                       with open(filepath, 'w', encoding='utf-8') as f:
@@ -390,6 +392,53 @@ jobs:
           print(f"\nTotal files fixed: {total_fixed}")
           EOF
           echo "Dart code fix completed"
+
+      - name: Fix IOClient - Stub connection_rotator
+        run: |
+          python3 << 'EOF'
+          import os, glob, re
+
+          # Cari semua file dart yang masih pakai IOClient dari package http
+          dart_files = glob.glob('lib/**/*.dart', recursive=True)
+          dart_files += glob.glob('lib/*.dart')
+
+          for filepath in dart_files:
+              try:
+                  with open(filepath, 'r', encoding='utf-8') as f:
+                      content = f.read()
+
+                  original = content
+
+                  # Jika file pakai IOClient tapi tidak ada import http, stub IOClient
+                  # dengan HttpClient dari dart:io
+                  if 'IOClient' in content:
+                      # Hapus import http jika ada
+                      content = re.sub(
+                          r"^import\s+'package:http/[^']*';\s*\n?",
+                          '', content, flags=re.MULTILINE
+                      )
+                      content = re.sub(
+                          r'^import\s+"package:http/[^"]*";\s*\n?',
+                          '', content, flags=re.MULTILINE
+                      )
+                      # Ganti IOClient(...) -> HttpClient()
+                      content = re.sub(r'\bIOClient\s*\([^)]*\)', 'HttpClient()', content)
+                      content = re.sub(r'\bIOClient\b', 'HttpClient', content)
+                      # Pastikan dart:io diimport
+                      if "import 'dart:io';" not in content:
+                          content = "import 'dart:io';\n" + content
+
+                  if content != original:
+                      with open(filepath, 'w', encoding='utf-8') as f:
+                          f.write(content)
+                      print(f"Fixed IOClient in: {filepath}")
+
+              except Exception as e:
+                  print(f"Skip {filepath}: {e}")
+
+          print("IOClient fix completed")
+          EOF
+          echo "IOClient fix done"
 
       - name: Update Android SDK Version in build.gradle
         run: |
@@ -493,5 +542,4 @@ jobs:
           echo "Build Mode: ${{ github.event.inputs.build_mode }}"
           echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
           echo "Status: SUCCESS"
-          echo "=========================================="                  
-                        
+          echo "=========================================="                                          
