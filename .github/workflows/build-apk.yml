@@ -37,11 +37,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter SDK (Latest)
+      - name: Setup Flutter SDK for Dart 3.8.1
         uses: subosito/flutter-action@v2
         with:
-          channel: 'master'
-          cache: true
+          flutter-version: '3.27.0'
+          channel: 'beta'
 
       - name: Flutter Version
         run: flutter --version
@@ -75,21 +75,12 @@ jobs:
           mv project_temp ./project
           echo "PROJECT_DIR=./project" >> $GITHUB_OUTPUT
 
-      - name: Auto Detect and Fix SDK Version
+      - name: Keep Original SDK Constraint (Dart 3.8.1)
         run: |
           if [ -f "project/pubspec.yaml" ]; then
             echo "Original pubspec.yaml:"
             cat project/pubspec.yaml | grep "sdk:"
-            
-            # Detect current SDK requirement
-            CURRENT_SDK=$(grep "sdk:" project/pubspec.yaml | head -1 | sed 's/.*sdk: //')
-            echo "Current SDK requirement: $CURRENT_SDK"
-            
-            # Always fix to compatible version
-            sed -i 's/sdk: .*/sdk: ^3.8.1/' project/pubspec.yaml
-            
-            echo "Fixed pubspec.yaml:"
-            cat project/pubspec.yaml | grep "sdk:"
+            echo "Keeping original SDK constraint (3.8.1)"
           fi
 
       - name: List Project Structure
@@ -186,5 +177,4 @@ jobs:
           echo "Job ID: ${{ github.event.inputs.job_id }}"
           echo "Project: ${{ steps.project_name.outputs.PROJECT_NAME }}"
           echo "Status: SUCCESS"
-          echo "=========================================="
-            
+          echo "=========================================="           
