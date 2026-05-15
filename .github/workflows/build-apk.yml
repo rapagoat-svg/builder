@@ -1,19 +1,19 @@
-name: Build APK Flutter
+name: Build APK
 
 on:
   workflow_dispatch:
     inputs:
       zip_url:
-        description: 'URL file ZIP project Flutter'
+        description: 'URL ZIP'
         required: true
         type: string
       sdk_version:
-        description: 'Android SDK Version'
+        description: 'SDK Version'
         required: true
         default: '34'
         type: string
       build_mode:
-        description: 'Build Mode'
+        description: 'Mode'
         required: true
         default: 'release'
         type: string
@@ -26,29 +26,23 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.0'
-      - name: Download ZIP
+      - name: Download
         run: |
-          curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
-          unzip -q project.zip -d project/
-      - name: Find Project
-        id: finder
+          curl -L -o a.zip "${{ inputs.zip_url }}"
+          unzip -q a.zip -d p
+      - name: Build
         run: |
-          cd project
-          PROJECT_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
-          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_OUTPUT
-      - name: Build APK
-        run: |
-          cd project/${{ steps.finder.outputs.PROJECT_DIR }}
+          cd p
+          DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
+          cd "$DIR"
           flutter pub get
           flutter build apk --release
-      - name: Upload APK
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: project/${{ steps.finder.outputs.PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
+          name: app
+          path: p/**/build/app/outputs/flutter-apk/*.apkoutputs.PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
