@@ -1,110 +1,29 @@
-name: Build APK Flutter
+name: Build APK
 
 on:
   workflow_dispatch:
     inputs:
       zip_url:
-        description: 'URL file ZIP project Flutter'
-        required: true
-        type: string
-      sdk_version:
-        description: 'Android SDK Version'
-        required: true
-        default: '34'
-        type: string
-      build_mode:
-        description: 'Build Mode (release/debug)'
-        required: true
-        default: 'release'
-        type: string
-      job_id:
-        description: 'Job ID untuk tracking'
+        description: 'URL ZIP Project Flutter'
         required: true
         type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Java JDK 17
-        uses: actions/setup-java@v4
+      - uses: subosito/flutter-action@v2
         with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Flutter SDK (Dart 3.8.1)
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'master'
-
-      - name: Download Project ZIP
-        run: |
-          curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
-          unzip -q project.zip
-          rm project.zip
-
-      - name: Find and Move Flutter Project
-        run: |
-          PROJ_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
-          PROJ_DIR="${PROJ_DIR#./}"
-          if [ "$PROJ_DIR" != "." ] && [ -n "$PROJ_DIR" ]; then
-            mv "$PROJ_DIR"/* ./ 2>/dev/null || true
-            rm -rf "$PROJ_DIR"
-          fi
-
-      - name: FORCE FIX pubspec.yaml (Remove invalid lines)
-        run: |
-          echo "===== ORIGINAL ====="
-          cat pubspec.yaml
-          
-          # Remove invalid "android: true" line
-          sed -i '/android:/d' pubspec.yaml
-          sed -i '/^\s*android:/d' pubspec.yaml
-          
-          # Fix SDK
-          sed -i 's/sdk: .*/sdk: ">=3.0.0 <4.0.0"/' pubspec.yaml
-          
-          # Remove problematic dependencies
-          sed -i '/font_awesome_flutter/d' pubspec.yaml
-          sed -i '/icon_data/d' pubspec.yaml
-          sed -i '/flutter_lints/d' pubspec.yaml
-          
-          # Fix any malformed lines
-          sed -i 's/^  [0-9]/  - /g' pubspec.yaml
-          
-          echo "===== FIXED ====="
-          cat pubspec.yaml
-
-      - name: Update Android SDK Version
-        run: |
-          SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-          if [ -f "android/app/build.gradle" ]; then
-            sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" android/app/build.gradle
-            sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" android/app/build.gradle
-          fi
-          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-
-      - name: Clean Flutter
-        run: flutter clean || true
-
-      - name: Flutter Pub Get
-        run: flutter pub get
-
-      - name: Build APK
-        id: build
-        run: |
+          channel: master
+      - run: |
+          curl -L -o a.zip "${{ inputs.zip_url }}"
+          unzip -q a.zip
+          rm a.zip
+      - run: |
+          cd $(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
+          flutter pub get
           flutter build apk --release
-          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
-          echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: app-release
-          path: ${{ steps.build.outputs.APK_PATH }}
-          retention-days: 7                    
+          path: '**/build/app/outputs/flutter-apk/*.apk'                              
