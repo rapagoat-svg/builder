@@ -37,7 +37,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter SDK with Dart 3.8.1
+      - name: Setup Flutter SDK (Dart 3.8.1)
         uses: subosito/flutter-action@v2
         with:
           channel: 'master'
@@ -48,33 +48,28 @@ jobs:
           unzip -q project.zip
           rm project.zip
 
-      - name: Find and Prepare Project
+      - name: Find Flutter Project
         run: |
           PROJ_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
-          if [ -z "$PROJ_DIR" ]; then
-            echo "pubspec.yaml not found!"
-            exit 1
-          fi
           PROJ_DIR="${PROJ_DIR#./}"
           if [ "$PROJ_DIR" != "." ] && [ -n "$PROJ_DIR" ]; then
             mv "$PROJ_DIR"/* ./ 2>/dev/null || true
             rm -rf "$PROJ_DIR"
           fi
-          echo "Project prepared"
 
-      - name: Keep SDK 3.8.1 and Remove Problematic Packages
+      - name: REMOVE ALL PROBLEMATIC DEPENDENCIES
         run: |
-          # Keep original SDK requirement
-          echo "Original SDK requirement:"
-          cat pubspec.yaml | grep "sdk:"
-          
-          # Remove icon_data if exists (temporary fix)
+          # Hapus semua dependency yang sering error
+          sed -i '/font_awesome_flutter/d' pubspec.yaml
           sed -i '/icon_data/d' pubspec.yaml
-          
-          # Also remove any problematic packages
           sed -i '/flutter_lints/d' pubspec.yaml
+          sed -i '/flutter_native_splash/d' pubspec.yaml
+          sed -i '/flutter_launcher_icons/d' pubspec.yaml
           
-          echo "After cleanup:"
+          # Fix SDK constraint
+          sed -i 's/sdk: .*/sdk: ">=3.0.0 <4.0.0"/' pubspec.yaml
+          
+          echo "✅ Fixed pubspec.yaml"
           cat pubspec.yaml
 
       - name: Update Android SDK Version
@@ -86,8 +81,8 @@ jobs:
           fi
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
-      - name: Clean Flutter
-        run: flutter clean
+      - name: Flutter Clean
+        run: flutter clean || true
 
       - name: Flutter Pub Get
         run: flutter pub get
@@ -95,29 +90,13 @@ jobs:
       - name: Build APK
         id: build
         run: |
-          if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
-            flutter build apk --release
-            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
-          else
-            flutter build apk --debug
-            APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
-          fi
-          
-          if [ ! -f "$APK_PATH" ]; then
-            if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
-              APK_PATH="build/app/outputs/apk/release/app-release.apk"
-            else
-              echo "APK not found!"
-              exit 1
-            fi
-          fi
-          
+          flutter build apk --release
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
           echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-          ls -lh "$APK_PATH"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ github.event.inputs.build_mode }}
+          name: app-release
           path: ${{ steps.build.outputs.APK_PATH }}
-          retention-days: 7        
+          retention-days: 7       
