@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       sdk_version:
-        description: 'SDK Version'
+        description: 'SDK'
         required: true
         default: '34'
         type: string
@@ -45,4 +45,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app
-          path: p/**/build/app/outputs/flutter-apk/*.apkoutputs.PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
+          path: p/**/build/app/outputs/flutter-apk/*.apk
