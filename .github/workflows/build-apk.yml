@@ -37,11 +37,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter SDK
+      - name: Setup Flutter SDK (Latest)
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'
-          channel: 'stable'
+          channel: 'master'
           cache: true
 
       - name: Flutter Version
@@ -49,41 +48,24 @@ jobs:
 
       - name: Download Project ZIP
         run: |
-          echo "Downloading from: ${{ github.event.inputs.zip_url }}"
           curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
-          if [ ! -f project.zip ]; then
-            echo "Error: Failed to download ZIP file"
-            exit 1
-          fi
-          echo "ZIP file downloaded successfully"
-          ls -la project.zip
-
-      - name: Extract ZIP File
-        run: |
           mkdir -p project_temp
           unzip -q project.zip -d project_temp/
-          echo "Extracted files:"
-          ls -la project_temp/
+          rm project.zip
 
-      - name: Find and Move Flutter Project (Remove Spaces from Folder Names)
+      - name: Find and Move Flutter Project
         id: finder
         run: |
           cd project_temp
-          
-          # Find pubspec.yaml
           PROJ_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
           if [ -z "$PROJ_DIR" ]; then
-            echo "Error: pubspec.yaml not found! Invalid Flutter project."
+            echo "pubspec.yaml not found!"
             exit 1
           fi
-          
-          # Remove leading ./
           PROJ_DIR="${PROJ_DIR#./}"
           echo "Original project directory: $PROJ_DIR"
           
-          # Move all contents to root (remove spaces from path)
           if [ "$PROJ_DIR" != "." ]; then
-            echo "Moving contents to root to avoid spaces in path..."
             mv "$PROJ_DIR"/* ./ 2>/dev/null || true
             mv "$PROJ_DIR"/.[!.]* ./ 2>/dev/null || true
             rm -rf "$PROJ_DIR"
@@ -91,62 +73,68 @@ jobs:
           
           cd ..
           mv project_temp ./project
-          
           echo "PROJECT_DIR=./project" >> $GITHUB_OUTPUT
-          echo "Project moved to root successfully"
+
+      - name: Auto Detect and Fix SDK Version
+        run: |
+          if [ -f "project/pubspec.yaml" ]; then
+            echo "Original pubspec.yaml:"
+            cat project/pubspec.yaml | grep "sdk:"
+            
+            # Detect current SDK requirement
+            CURRENT_SDK=$(grep "sdk:" project/pubspec.yaml | head -1 | sed 's/.*sdk: //')
+            echo "Current SDK requirement: $CURRENT_SDK"
+            
+            # Always fix to compatible version
+            sed -i 's/sdk: .*/sdk: ">=3.0.0 <4.0.0"/' project/pubspec.yaml
+            
+            echo "Fixed pubspec.yaml:"
+            cat project/pubspec.yaml | grep "sdk:"
+          fi
 
       - name: List Project Structure
         run: |
-          echo "Project structure:"
           ls -la project/
           if [ -f "project/pubspec.yaml" ]; then
-            echo "pubspec.yaml found in root"
+            echo "pubspec.yaml found"
           else
-            echo "pubspec.yaml not found in root"
+            echo "pubspec.yaml not found"
             exit 1
           fi
 
-      - name: Read Project Name from pubspec.yaml
+      - name: Read Project Name
         id: project_name
         run: |
           PROJECT_NAME=$(grep "^name:" project/pubspec.yaml | cut -d' ' -f2)
           echo "PROJECT_NAME=$PROJECT_NAME" >> $GITHUB_OUTPUT
-          echo "Project name: $PROJECT_NAME"
 
-      - name: Update Android SDK Version in build.gradle
+      - name: Update Android SDK Version
         run: |
           SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-          
-          echo "Setting Android SDK to API $SDK_VERSION"
           
           if [ -f "project/android/app/build.gradle" ]; then
             sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" project/android/app/build.gradle
             sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" project/android/app/build.gradle
-            echo "build.gradle updated"
           fi
           
           if [ -f "project/android/app/build.gradle.kts" ]; then
             sed -i "s/compileSdk = [0-9]*/compileSdk = $SDK_VERSION/" project/android/app/build.gradle.kts
             sed -i "s/targetSdk = [0-9]*/targetSdk = $SDK_VERSION/" project/android/app/build.gradle.kts
-            echo "build.gradle.kts updated"
           fi
           
           mkdir -p project/android
           echo "sdk.dir=$ANDROID_HOME" > project/android/local.properties
-          echo "local.properties created"
 
       - name: Flutter Clean
         run: |
           cd project
           flutter clean || true
           rm -rf .dart_tool .gradle build
-          echo "Flutter clean completed"
 
       - name: Flutter Pub Get
         run: |
           cd project
           flutter pub get
-          echo "Dependencies installed successfully"
 
       - name: Build APK
         id: build
@@ -154,20 +142,16 @@ jobs:
           cd project
           
           if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
-            echo "Building RELEASE APK..."
             flutter build apk --release
             APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
           else
-            echo "Building DEBUG APK..."
             flutter build apk --debug
             APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
           fi
           
           if [ ! -f "$APK_PATH" ]; then
-            echo "Error: APK not found at $APK_PATH"
             if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
               APK_PATH="build/app/outputs/apk/release/app-release.apk"
-              echo "Found APK at alternative path"
             else
               echo "No APK found"
               exit 1
@@ -175,9 +159,7 @@ jobs:
           fi
           
           echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-          APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
-          echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
-          echo "APK built successfully! Size: $APK_SIZE"
+          ls -lh "$APK_PATH"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -193,7 +175,6 @@ jobs:
           name: debug-logs
           path: |
             project/build/
-            project/.dart_tool/
             ~/.gradle/
           retention-days: 3
 
@@ -203,9 +184,7 @@ jobs:
           echo "BUILD SUMMARY"
           echo "=========================================="
           echo "Job ID: ${{ github.event.inputs.job_id }}"
-          echo "Project Name: ${{ steps.project_name.outputs.PROJECT_NAME }}"
-          echo "SDK Version: ${{ github.event.inputs.sdk_version }}"
-          echo "Build Mode: ${{ github.event.inputs.build_mode }}"
-          echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
+          echo "Project: ${{ steps.project_name.outputs.PROJECT_NAME }}"
           echo "Status: SUCCESS"
-          echo "=========================================="                  
+          echo "=========================================="
+            
