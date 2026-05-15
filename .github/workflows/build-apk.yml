@@ -25,7 +25,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout Repository
@@ -48,28 +48,45 @@ jobs:
           unzip -q project.zip
           rm project.zip
 
-      - name: Find Flutter Project
+      - name: Find and Prepare Project
+        id: finder
         run: |
           PROJ_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
+          if [ -z "$PROJ_DIR" ]; then
+            echo "pubspec.yaml not found!"
+            exit 1
+          fi
           PROJ_DIR="${PROJ_DIR#./}"
           if [ "$PROJ_DIR" != "." ] && [ -n "$PROJ_DIR" ]; then
             mv "$PROJ_DIR"/* ./ 2>/dev/null || true
             rm -rf "$PROJ_DIR"
           fi
+          echo "PROJECT_READY=true" >> $GITHUB_OUTPUT
 
-      - name: REMOVE ALL PROBLEMATIC DEPENDENCIES
+      - name: Auto Fix All Dependencies (Make Compatible with SDK 3.8.1)
         run: |
-          # Hapus semua dependency yang sering error
-          sed -i '/font_awesome_flutter/d' pubspec.yaml
-          sed -i '/icon_data/d' pubspec.yaml
-          sed -i '/flutter_lints/d' pubspec.yaml
-          sed -i '/flutter_native_splash/d' pubspec.yaml
-          sed -i '/flutter_launcher_icons/d' pubspec.yaml
+          echo "Original pubspec.yaml:"
+          cat pubspec.yaml
           
           # Fix SDK constraint
           sed -i 's/sdk: .*/sdk: ">=3.0.0 <4.0.0"/' pubspec.yaml
           
-          echo "✅ Fixed pubspec.yaml"
+          # Fix font_awesome_flutter (downgrade to compatible version)
+          sed -i 's/font_awesome_flutter: .*/font_awesome_flutter: ^9.2.0/' pubspec.yaml
+          
+          # Fix any version conflicts
+          sed -i 's/icon_data: .*/icon_data: ^1.0.0/' pubspec.yaml
+          
+          # Add dependency_overrides for problematic packages
+          cat >> pubspec.yaml << 'EOF'
+
+dependency_overrides:
+  font_awesome_flutter: 9.2.0
+  icon_data: 1.0.0
+EOF
+          
+          echo ""
+          echo "Fixed pubspec.yaml:"
           cat pubspec.yaml
 
       - name: Update Android SDK Version
@@ -78,6 +95,10 @@ jobs:
           if [ -f "android/app/build.gradle" ]; then
             sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" android/app/build.gradle
             sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" android/app/build.gradle
+          fi
+          if [ -f "android/app/build.gradle.kts" ]; then
+            sed -i "s/compileSdk = [0-9]*/compileSdk = $SDK_VERSION/" android/app/build.gradle.kts
+            sed -i "s/targetSdk = [0-9]*/targetSdk = $SDK_VERSION/" android/app/build.gradle.kts
           fi
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
@@ -90,13 +111,39 @@ jobs:
       - name: Build APK
         id: build
         run: |
-          flutter build apk --release
-          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
+            flutter build apk --release
+            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          else
+            flutter build apk --debug
+            APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
+          fi
+          
+          if [ ! -f "$APK_PATH" ]; then
+            if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
+              APK_PATH="build/app/outputs/apk/release/app-release.apk"
+            else
+              echo "No APK found!"
+              exit 1
+            fi
+          fi
+          
           echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
+          ls -lh "$APK_PATH"
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
+          name: app-${{ github.event.inputs.build_mode }}
           path: ${{ steps.build.outputs.APK_PATH }}
-          retention-days: 7       
+          retention-days: 7
+
+      - name: Build Summary
+        run: |
+          echo "=========================================="
+          echo "✅ BUILD SUCCESS ✅"
+          echo "=========================================="
+          echo "Job ID: ${{ github.event.inputs.job_id }}"
+          echo "SDK Version: ${{ github.event.inputs.sdk_version }}"
+          echo "Build Mode: ${{ github.event.inputs.build_mode }}"
+          echo "=========================================="          
