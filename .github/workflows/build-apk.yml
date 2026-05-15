@@ -37,101 +37,49 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter SDK for Dart 3.8.1
+      - name: Setup Flutter SDK (Dart 3.8.1)
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.27.0'
-          channel: 'beta'
-
-      - name: Flutter Version
-        run: flutter --version
+          channel: 'stable'
 
       - name: Download Project ZIP
         run: |
           curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
-          mkdir -p project_temp
-          unzip -q project.zip -d project_temp/
+          unzip -q project.zip
           rm project.zip
 
-      - name: Find and Move Flutter Project
+      - name: Find Flutter Project
         id: finder
         run: |
-          cd project_temp
           PROJ_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
           if [ -z "$PROJ_DIR" ]; then
             echo "pubspec.yaml not found!"
             exit 1
           fi
           PROJ_DIR="${PROJ_DIR#./}"
-          echo "Original project directory: $PROJ_DIR"
+          echo "PROJECT_DIR=$PROJ_DIR" >> $GITHUB_OUTPUT
           
           if [ "$PROJ_DIR" != "." ]; then
             mv "$PROJ_DIR"/* ./ 2>/dev/null || true
-            mv "$PROJ_DIR"/.[!.]* ./ 2>/dev/null || true
             rm -rf "$PROJ_DIR"
           fi
-          
-          cd ..
-          mv project_temp ./project
-          echo "PROJECT_DIR=./project" >> $GITHUB_OUTPUT
-
-      - name: Skip SDK Fix (Keep Original 3.8.1)
-        run: |
-          if [ -f "project/pubspec.yaml" ]; then
-            echo "Original pubspec.yaml:"
-            cat project/pubspec.yaml | grep "sdk:"
-            echo "Keeping original SDK constraint for Dart 3.8.1"
-          fi
-
-      - name: List Project Structure
-        run: |
-          ls -la project/
-          if [ -f "project/pubspec.yaml" ]; then
-            echo "pubspec.yaml found"
-          else
-            echo "pubspec.yaml not found"
-            exit 1
-          fi
-
-      - name: Read Project Name
-        id: project_name
-        run: |
-          PROJECT_NAME=$(grep "^name:" project/pubspec.yaml | cut -d' ' -f2)
-          echo "PROJECT_NAME=$PROJECT_NAME" >> $GITHUB_OUTPUT
 
       - name: Update Android SDK Version
         run: |
           SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-          
-          if [ -f "project/android/app/build.gradle" ]; then
-            sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" project/android/app/build.gradle
-            sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" project/android/app/build.gradle
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" android/app/build.gradle
+            sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" android/app/build.gradle
           fi
-          
-          if [ -f "project/android/app/build.gradle.kts" ]; then
-            sed -i "s/compileSdk = [0-9]*/compileSdk = $SDK_VERSION/" project/android/app/build.gradle.kts
-            sed -i "s/targetSdk = [0-9]*/targetSdk = $SDK_VERSION/" project/android/app/build.gradle.kts
-          fi
-          
-          mkdir -p project/android
-          echo "sdk.dir=$ANDROID_HOME" > project/android/local.properties
-
-      - name: Flutter Clean
-        run: |
-          cd project
-          flutter clean || true
-          rm -rf .dart_tool .gradle build
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
       - name: Flutter Pub Get
-        run: |
-          cd project
-          flutter pub get
+        run: flutter pub get
 
       - name: Build APK
         id: build
         run: |
-          cd project
-          
           if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
             flutter build apk --release
             APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
@@ -140,42 +88,11 @@ jobs:
             APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
           fi
           
-          if [ ! -f "$APK_PATH" ]; then
-            if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
-              APK_PATH="build/app/outputs/apk/release/app-release.apk"
-            else
-              echo "No APK found"
-              exit 1
-            fi
-          fi
-          
           echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-          ls -lh "$APK_PATH"
 
-      - name: Upload APK Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-${{ github.event.inputs.build_mode }}
-          path: project/${{ steps.build.outputs.APK_PATH }}
-          retention-days: 7
-
-      - name: Upload Debug Logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-logs
-          path: |
-            project/build/
-            ~/.gradle/
-          retention-days: 3
-
-      - name: Build Summary
-        run: |
-          echo "=========================================="
-          echo "BUILD SUMMARY"
-          echo "=========================================="
-          echo "Job ID: ${{ github.event.inputs.job_id }}"
-          echo "Project: ${{ steps.project_name.outputs.PROJECT_NAME }}"
-          echo "Status: SUCCESS"
-          echo "=========================================="
-          
+          path: ${{ steps.build.outputs.APK_PATH }}
+          retention-days: 7          
