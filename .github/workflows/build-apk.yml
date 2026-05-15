@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       zip_url:
-        description: 'URL file ZIP project Flutter'
+        description: 'URL file ZIP project Flutter (MUST be direct download)'
         required: true
         type: string
       sdk_version:
@@ -24,7 +24,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
@@ -43,9 +43,34 @@ jobs:
           flutter-version: '3.22.0'
           channel: 'stable'
 
-      - name: Download ZIP
+      - name: Download and Verify ZIP
         run: |
-          curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
+          echo "Downloading from: ${{ github.event.inputs.zip_url }}"
+          
+          # Download dengan follow redirect
+          curl -L -o project.zip "${{ github.event.inputs.zip_url }}" --fail
+          
+          # Cek apakah file ZIP valid
+          if [ ! -f project.zip ]; then
+            echo "Error: File not downloaded"
+            exit 1
+          fi
+          
+          # Cek magic number ZIP (PK)
+          if [ "$(head -c 2 project.zip)" != "PK" ]; then
+            echo "Error: File is not a ZIP file (wrong magic number)"
+            echo "First 20 bytes: $(head -c 20 project.zip | xxd)"
+            exit 1
+          fi
+          
+          # Test unzip
+          if ! unzip -tq project.zip; then
+            echo "Error: ZIP file is corrupted"
+            exit 1
+          fi
+          
+          echo "ZIP file is valid"
+          mkdir -p project
           unzip -q project.zip -d project/
           ls -la project/
 
@@ -54,19 +79,18 @@ jobs:
         run: |
           cd project
           PROJECT_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "pubspec.yaml not found!"
+            exit 1
+          fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_OUTPUT
           echo "Found at: $PROJECT_DIR"
 
       - name: Reduce Memory Usage
         run: |
           cd project/${{ steps.finder.outputs.PROJECT_DIR }}
-          # Kurangi memory gradle
           echo "org.gradle.jvmargs=-Xmx2g" >> android/gradle.properties
           echo "android.enableR8=false" >> android/gradle.properties
-          
-          # Hapus file tidak perlu
-          rm -rf .dart_tool
-          rm -rf build
 
       - name: Flutter Clean
         run: |
@@ -78,11 +102,12 @@ jobs:
           cd project/${{ steps.finder.outputs.PROJECT_DIR }}
           flutter pub get
 
-      - name: Build APK (Optimized)
+      - name: Build APK
+        id: build
         run: |
           cd project/${{ steps.finder.outputs.PROJECT_DIR }}
           if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
-            flutter build apk --release --split-per-abi
+            flutter build apk --release
           else
             flutter build apk --debug
           fi
@@ -92,3 +117,4 @@ jobs:
         with:
           name: app-${{ github.event.inputs.build_mode }}
           path: project/${{ steps.finder.outputs.PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
+          retention-days: 7
