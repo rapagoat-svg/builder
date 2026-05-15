@@ -26,6 +26,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     
+    # Kurangi penggunaan memory
+    env:
+      JAVA_OPTS: "-Xmx2g"
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2g"
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,6 +39,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.0'
+          cache: true
       
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -44,8 +50,9 @@ jobs:
       - name: Download ZIP
         run: |
           wget -O project.zip "${{ github.event.inputs.zip_url }}"
+          mkdir -p project
           unzip -q project.zip -d project/
-          ls -la project/
+          rm project.zip
       
       - name: Find Flutter Project
         id: finder
@@ -53,23 +60,24 @@ jobs:
           cd project
           PROJECT_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_OUTPUT
-          echo "Found project at: $PROJECT_DIR"
+          echo "Found: $PROJECT_DIR"
       
       - name: Flutter Clean
         run: |
           cd project/${{ steps.finder.outputs.PROJECT_DIR }}
           flutter clean
+          rm -rf build/ .dart_tool/ .gradle/
       
       - name: Flutter Pub Get
         run: |
           cd project/${{ steps.finder.outputs.PROJECT_DIR }}
-          flutter pub get
+          flutter pub get --no-example
       
-      - name: Build APK
+      - name: Build APK (Optimized)
         run: |
           cd project/${{ steps.finder.outputs.PROJECT_DIR }}
           if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
-            flutter build apk --release
+            flutter build apk --release --split-per-abi
           else
             flutter build apk --debug
           fi
@@ -79,3 +87,4 @@ jobs:
         with:
           name: app-${{ github.event.inputs.build_mode }}
           path: project/${{ steps.finder.outputs.PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
+          retention-days: 7
