@@ -4,30 +4,83 @@ on:
   workflow_dispatch:
     inputs:
       zip_url:
-        description: 'URL ZIP'
+        description: 'URL file ZIP project Flutter'
         required: true
+        type: string
+      sdk_version:
+        description: 'Android SDK Version'
+        required: true
+        default: '34'
+        type: string
+      build_mode:
+        description: 'Build Mode (release/debug)'
+        required: true
+        default: 'release'
+        type: string
+      job_id:
+        description: 'Job ID'
+        required: true
+        type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Download ZIP
-        run: wget -O project.zip "${{ github.event.inputs.zip_url }}"
-      - name: Extract ZIP
-        run: unzip project.zip -d project
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.22.0'
-      - name: Build APK
-        run: |
-          cd project
-          PROJECT_DIR=$(find . -name "pubspec.yaml" -type f | head -1 | xargs dirname)
-          cd "$PROJECT_DIR"
-          flutter pub get
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.22.0'
+    
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+    
+    - name: Download ZIP
+      run: |
+        wget -O project.zip "${{ github.event.inputs.zip_url }}"
+        unzip project.zip -d project/
+    
+    - name: Find Flutter Project
+      run: |
+        cd project/
+        # Cari pubspec.yaml
+        PROJECT_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
+        echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+    
+    - name: Setup Android SDK
+      run: |
+        echo "Setting Android SDK to API ${{ github.event.inputs.sdk_version }}"
+        cd ${{ env.PROJECT_DIR }}/android/
+        sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion ${{ github.event.inputs.sdk_version }}/" app/build.gradle
+        sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion ${{ github.event.inputs.sdk_version }}/" app/build.gradle
+    
+    - name: Flutter Clean
+      run: |
+        cd ${{ env.PROJECT_DIR }}
+        flutter clean
+    
+    - name: Flutter Pub Get
+      run: |
+        cd ${{ env.PROJECT_DIR }}
+        flutter pub get
+    
+    - name: Build APK
+      run: |
+        cd ${{ env.PROJECT_DIR }}
+        if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
           flutter build apk --release
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release
-          path: "**/build/app/outputs/flutter-apk/*.apk"
+        else
+          flutter build apk --debug
+        fi
+    
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-${{ github.event.inputs.build_mode }}
+        path: ${{ env.PROJECT_DIR }}/build/app/outputs/flutter-apk/*.apk
