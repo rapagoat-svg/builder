@@ -86,20 +86,16 @@ jobs:
               content = f.read()
 
           # 1) Perbaiki SDK constraint di dalam blok environment: saja
-          #    Pakai pendekatan line-by-line supaya tidak salah target
           lines = content.split('\n')
           in_environment = False
           new_lines = []
           for line in lines:
-              # Deteksi masuk blok environment:
               if re.match(r'^environment\s*:', line):
                   in_environment = True
                   new_lines.append(line)
                   continue
-              # Keluar dari blok environment jika baris baru tidak indented
               if in_environment and line and not line[0].isspace():
                   in_environment = False
-              # Ganti sdk: hanya kalau dalam blok environment
               if in_environment and re.match(r'^\s+sdk\s*:', line):
                   indent = len(line) - len(line.lstrip())
                   new_lines.append(' ' * indent + 'sdk: ">=3.5.0 <4.0.0"')
@@ -178,16 +174,23 @@ jobs:
           fi
           echo "Dependencies resolved"
 
+      - name: Auto Fix Dart Code
+        run: |
+          echo "Applying dart fix for null safety and deprecated syntax..."
+          dart fix --apply || true
+          echo "Dart fix completed"
+
       - name: Build APK
         id: build
         run: |
           if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
             echo "Building RELEASE APK..."
-            flutter build apk --release
+            flutter build apk --release --no-tree-shake-icons || \
+            flutter build apk --release --no-tree-shake-icons --dart-define=FLUTTER_WEB_USE_SKIA=false
             APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
           else
             echo "Building DEBUG APK..."
-            flutter build apk --debug
+            flutter build apk --debug --no-tree-shake-icons
             APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
           fi
 
@@ -239,4 +242,5 @@ jobs:
           echo "Build Mode: ${{ github.event.inputs.build_mode }}"
           echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
           echo "Status: SUCCESS"
-          echo "=========================================="                
+          echo "=========================================="                  
+      
