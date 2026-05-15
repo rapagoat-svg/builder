@@ -90,8 +90,7 @@ jobs:
           fi
           
           cd ..
-          mv project_temp/* ./project/
-          rm -rf project_temp
+          mv project_temp ./project
           
           echo "PROJECT_DIR=./project" >> $GITHUB_OUTPUT
           echo "Project moved to root successfully"
@@ -101,9 +100,9 @@ jobs:
           echo "Project structure:"
           ls -la project/
           if [ -f "project/pubspec.yaml" ]; then
-            echo "✅ pubspec.yaml found in root"
+            echo "pubspec.yaml found in root"
           else
-            echo "❌ pubspec.yaml not found in root"
+            echo "pubspec.yaml not found in root"
             exit 1
           fi
 
@@ -120,43 +119,34 @@ jobs:
           
           echo "Setting Android SDK to API $SDK_VERSION"
           
-          # Update build.gradle
           if [ -f "project/android/app/build.gradle" ]; then
             sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" project/android/app/build.gradle
             sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" project/android/app/build.gradle
-            echo "✅ build.gradle updated"
+            echo "build.gradle updated"
           fi
           
-          # Update build.gradle.kts
           if [ -f "project/android/app/build.gradle.kts" ]; then
             sed -i "s/compileSdk = [0-9]*/compileSdk = $SDK_VERSION/" project/android/app/build.gradle.kts
             sed -i "s/targetSdk = [0-9]*/targetSdk = $SDK_VERSION/" project/android/app/build.gradle.kts
-            echo "✅ build.gradle.kts updated"
+            echo "build.gradle.kts updated"
           fi
           
-          # Create local.properties
           mkdir -p project/android
           echo "sdk.dir=$ANDROID_HOME" > project/android/local.properties
-          echo "✅ local.properties created"
+          echo "local.properties created"
 
       - name: Flutter Clean
         run: |
           cd project
           flutter clean || true
           rm -rf .dart_tool .gradle build
-          echo "✅ Flutter clean completed"
+          echo "Flutter clean completed"
 
       - name: Flutter Pub Get
         run: |
           cd project
           flutter pub get
-          echo "✅ Dependencies installed successfully"
-
-      - name: Flutter Pub Get (Verbose for debugging)
-        if: failure()
-        run: |
-          cd project
-          flutter pub get --verbose
+          echo "Dependencies installed successfully"
 
       - name: Build APK
         id: build
@@ -175,12 +165,11 @@ jobs:
           
           if [ ! -f "$APK_PATH" ]; then
             echo "Error: APK not found at $APK_PATH"
-            echo "Trying alternative path..."
             if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
               APK_PATH="build/app/outputs/apk/release/app-release.apk"
-              echo "Found APK at alternative path: $APK_PATH"
+              echo "Found APK at alternative path"
             else
-              echo "No APK found anywhere"
+              echo "No APK found"
               exit 1
             fi
           fi
@@ -188,16 +177,16 @@ jobs:
           echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
           APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
           echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
-          echo "✅ APK built successfully! Size: $APK_SIZE"
+          echo "APK built successfully! Size: $APK_SIZE"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ github.event.inputs.build_mode }}-sdk${{ github.event.inputs.sdk_version }}
+          name: app-${{ github.event.inputs.build_mode }}
           path: project/${{ steps.build.outputs.APK_PATH }}
           retention-days: 7
 
-      - name: Upload Debug Logs (if failed)
+      - name: Upload Debug Logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -211,12 +200,12 @@ jobs:
       - name: Build Summary
         run: |
           echo "=========================================="
-          echo "✅ BUILD SUMMARY ✅"
+          echo "BUILD SUMMARY"
           echo "=========================================="
           echo "Job ID: ${{ github.event.inputs.job_id }}"
           echo "Project Name: ${{ steps.project_name.outputs.PROJECT_NAME }}"
           echo "SDK Version: ${{ github.event.inputs.sdk_version }}"
           echo "Build Mode: ${{ github.event.inputs.build_mode }}"
           echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
-          echo "Status: SUCCESS ✅"
-          echo "=========================================="
+          echo "Status: SUCCESS"
+          echo "=========================================="                  
