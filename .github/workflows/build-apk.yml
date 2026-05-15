@@ -1,4 +1,4 @@
-name: Build APK
+name: Build APK Flutter
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
         default: '34'
         type: string
       build_mode:
-        description: 'Build Mode'
+        description: 'Build Mode (release/debug)'
         required: true
         default: 'release'
         type: string
@@ -34,7 +34,7 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Flutter
@@ -42,22 +42,18 @@ jobs:
         with:
           flutter-version: '3.22.0'
           channel: 'stable'
-          cache: true
 
       - name: Verify Flutter
-        run: |
-          flutter --version
-          flutter doctor
+        run: flutter --version
 
-      - name: Download ZIP
+      - name: Download and Extract ZIP
         run: |
-          echo "Downloading from: ${{ github.event.inputs.zip_url }}"
+          echo "Downloading ZIP..."
           curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
           if [ ! -f project.zip ]; then
-            echo "Error: Failed to download ZIP file"
+            echo "Error: Failed to download ZIP"
             exit 1
           fi
-          mkdir -p project
           unzip -q project.zip -d project/
           ls -la project/
 
@@ -71,19 +67,17 @@ jobs:
             exit 1
           fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_OUTPUT
-          echo "Found Flutter project at: $PROJECT_DIR"
+          echo "Found project at: $PROJECT_DIR"
 
       - name: Setup Android SDK Version
         run: |
-          PROJECT_DIR="${{ steps.finder.outputs.PROJECT_DIR }}"
+          PROJECT_DIR="project/${{ steps.finder.outputs.PROJECT_DIR }}"
           SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-          
-          echo "Setting Android SDK to API $SDK_VERSION"
           
           if [ -f "$PROJECT_DIR/android/app/build.gradle" ]; then
             sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" "$PROJECT_DIR/android/app/build.gradle"
             sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" "$PROJECT_DIR/android/app/build.gradle"
-            echo "build.gradle updated"
+            echo "build.gradle updated to SDK $SDK_VERSION"
           fi
 
       - name: Flutter Clean
@@ -120,6 +114,17 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ github.event.inputs.build_mode }}-sdk${{ github.event.inputs.sdk_version }}
+          name: app-${{ github.event.inputs.build_mode }}
           path: project/${{ steps.finder.outputs.PROJECT_DIR }}/${{ steps.build.outputs.APK_PATH }}
           retention-days: 7
+
+      - name: Summary
+        run: |
+          echo "=========================================="
+          echo "Build Summary"
+          echo "=========================================="
+          echo "Job ID: ${{ github.event.inputs.job_id }}"
+          echo "SDK Version: ${{ github.event.inputs.sdk_version }}"
+          echo "Build Mode: ${{ github.event.inputs.build_mode }}"
+          echo "Status: SUCCESS"
+          echo "=========================================="
