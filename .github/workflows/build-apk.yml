@@ -360,8 +360,24 @@ jobs:
                   # Ganti FaIcon -> Icon
                   content = re.sub(r'\bFaIcon\s*\(', 'Icon(', content)
 
-                  # Fix untuk info_outlineCircle
+                  # FIX: Bersihkan icon tidak valid hasil dari concatenation/typo
                   content = content.replace('Icons.info_outlineCircle', 'Icons.info_outline')
+                  content = content.replace('Icons.calendar_todayAlt', 'Icons.calendar_month')
+                  content = content.replace('Icons.calendar_todayMonth', 'Icons.calendar_month')
+
+                  # FIX: Tangkap semua Icons.xxxYyy yang tidak valid (camelCase setelah prefix valid)
+                  # Pattern: Icons.<valid_name><ExtraWord> -> Icons.<valid_name>
+                  known_invalid = [
+                      ('Icons.calendar_todayAlt', 'Icons.calendar_month'),
+                      ('Icons.access_timeAlt', 'Icons.access_time'),
+                      ('Icons.location_onAlt', 'Icons.location_on'),
+                      ('Icons.delete_outlineAlt', 'Icons.delete_outline'),
+                      ('Icons.add_circle_outlineAlt', 'Icons.add_circle_outline'),
+                      ('Icons.remove_circle_outlineAlt', 'Icons.remove_circle_outline'),
+                      ('Icons.check_circle_outlineAlt', 'Icons.check_circle_outline'),
+                  ]
+                  for bad, good in known_invalid:
+                      content = content.replace(bad, good)
 
                   if content != original:
                       with open(filepath, 'w', encoding='utf-8') as f:
@@ -376,111 +392,120 @@ jobs:
           EOF
           echo "Dart code fix completed"
 
+          # -------------------------------------------------------
+          # FIX TAMBAHAN: Pastikan tidak ada icon tidak valid tersisa
+          # -------------------------------------------------------
+          echo "Running extra icon validation pass..."
+          find lib -name "*.dart" -exec sed -i \
+            -e 's/Icons\.calendar_todayAlt/Icons.calendar_month/g' \
+            -e 's/Icons\.info_outlineCircle/Icons.info_outline/g' \
+            -e 's/Icons\.access_timeAlt/Icons.access_time/g' \
+            -e 's/Icons\.location_onAlt/Icons.location_on/g' \
+            {} \;
+          echo "Extra icon validation pass completed"
+
       - name: Fix Connection Rotator HttpClient Issue
         run: |
-          python3 << 'EOF'
+          # -------------------------------------------------------
+          # STRATEGI: Tulis ulang file connection_rotator.dart
+          # sepenuhnya dengan implementasi yang benar.
+          # Ini lebih andal daripada patch regex.
+          # -------------------------------------------------------
+          FILEPATH="lib/services/connection_rotator.dart"
+
+          if [ ! -f "$FILEPATH" ]; then
+            echo "File connection_rotator.dart tidak ditemukan, skip"
+          else
+            echo "===== ORIGINAL connection_rotator.dart ====="
+            cat "$FILEPATH"
+
+            python3 << 'EOF'
           import os, re
 
           filepath = "lib/services/connection_rotator.dart"
-          if not os.path.exists(filepath):
-              print("File connection_rotator.dart tidak ditemukan, skip")
-          else:
-              with open(filepath, 'r', encoding='utf-8') as f:
-                  content = f.read()
 
-              print("===== ORIGINAL connection_rotator.dart =====")
-              print(content)
+          with open(filepath, 'r', encoding='utf-8') as f:
+              content = f.read()
 
-              original = content
+          original = content
 
-              # -------------------------------------------------------
-              # STRATEGI: Tulis ulang file ini sepenuhnya dengan versi
-              # yang sudah benar daripada mencoba patch regex yang rapuh.
-              # Kita deteksi pola fungsinya, lalu timpa dengan implementasi
-              # yang benar menggunakan IOClient + dart:io HttpClient.
-              # -------------------------------------------------------
+          # Hapus import lama yang mungkin konflik
+          content = re.sub(r"^import\s+'package:http/io_client\.dart'[^\n]*\n?", '', content, flags=re.MULTILINE)
+          content = re.sub(r'^import\s+"package:http/io_client\.dart"[^\n]*\n?', '', content, flags=re.MULTILINE)
+          content = re.sub(r"^import\s+'dart:io';\s*\n?", '', content, flags=re.MULTILINE)
+          content = re.sub(r'^import\s+"dart:io";\s*\n?', '', content, flags=re.MULTILINE)
 
-              # Pastikan import yang dibutuhkan ada di atas
-              required_imports = [
-                  "import 'dart:io';",
-                  "import 'package:http/http.dart' as http;",
-                  "import 'package:http/io_client.dart';",
-              ]
+          # Perbaiki return type
+          content = re.sub(r'Future<\s*HttpClient\s*>', 'Future<http.Client>', content)
+          content = re.sub(r'Future<\s*Client\s*>', 'Future<http.Client>', content)
 
-              # Hapus import lama yang konflik
-              content = re.sub(r"^import\s+'package:http/io_client\.dart'[^\n]*\n?", '', content, flags=re.MULTILINE)
-              content = re.sub(r'^import\s+"package:http/io_client\.dart"[^\n]*\n?', '', content, flags=re.MULTILINE)
-              content = re.sub(r"^import\s+'dart:io';\s*\n?", '', content, flags=re.MULTILINE)
+          # Perbaiki isi fungsi - return http.Client() -> return IOClient(...)
+          content = re.sub(
+              r'return\s+http\.Client\(\)\s*;',
+              'return IOClient(HttpClient()..badCertificateCallback = (cert, host, port) => true);',
+              content
+          )
+          # return HttpClient() -> return IOClient(...)
+          content = re.sub(
+              r'return\s+HttpClient\(\)\s*;',
+              'return IOClient(HttpClient()..badCertificateCallback = (cert, host, port) => true);',
+              content
+          )
+          # Pastikan HttpClient yang dibuat punya badCertificateCallback
+          content = re.sub(
+              r'HttpClient\s+(\w+)\s*=\s*HttpClient\(\)\s*;',
+              r'HttpClient \1 = HttpClient()..badCertificateCallback = (cert, host, port) => true;',
+              content
+          )
 
-              # Perbaiki return type: semua variasi -> Future<http.Client>
-              content = re.sub(r'Future<\s*HttpClient\s*>', 'Future<http.Client>', content)
-              content = re.sub(r'Future<\s*Client\s*>', 'Future<http.Client>', content)
-
-              # Perbaiki isi fungsi:
-              # "return http.Client();" -> "return IOClient(HttpClient()..badCertificateCallback = (c,h,p) => true);"
-              content = re.sub(
-                  r'return\s+http\.Client\(\)\s*;',
-                  'return IOClient(HttpClient()..badCertificateCallback = (cert, host, port) => true);',
-                  content
-              )
-              # "return HttpClient();" -> sama
-              content = re.sub(
-                  r'return\s+HttpClient\(\)\s*;',
-                  'return IOClient(HttpClient()..badCertificateCallback = (cert, host, port) => true);',
-                  content
-              )
-              # "return IOClient(httpClient);" sudah benar, biarkan
-              # Pastikan httpClient yang dibuat punya badCertificateCallback
-              content = re.sub(
-                  r'(HttpClient\s+httpClient\s*=\s*HttpClient\(\)\s*;)',
-                  r'HttpClient httpClient = HttpClient()..badCertificateCallback = (cert, host, port) => true;',
-                  content
-              )
-              # Hapus baris badCertificateCallback yang duplikat jika ada
-              lines = content.split('\n')
-              seen_bad_cert = False
-              new_lines = []
-              for line in lines:
-                  if 'badCertificateCallback' in line:
-                      if not seen_bad_cert:
-                          seen_bad_cert = True
-                          new_lines.append(line)
-                      # skip duplikat
-                  else:
-                      if 'HttpClient' in line or 'IOClient' in line:
-                          seen_bad_cert = False  # reset per fungsi/blok baru
+          # Hapus duplikat badCertificateCallback
+          lines = content.split('\n')
+          seen_bad_cert = False
+          new_lines = []
+          for line in lines:
+              if 'badCertificateCallback' in line:
+                  if not seen_bad_cert:
+                      seen_bad_cert = True
                       new_lines.append(line)
-              content = '\n'.join(new_lines)
-
-              # Tambahkan import yang dibutuhkan di paling atas
-              for imp in reversed(required_imports):
-                  if imp not in content:
-                      content = imp + '\n' + content
-
-              # Hapus duplikat import
-              seen_imports = set()
-              lines = content.split('\n')
-              new_lines = []
-              for line in lines:
-                  stripped = line.strip()
-                  if stripped.startswith("import "):
-                      if stripped not in seen_imports:
-                          seen_imports.add(stripped)
-                          new_lines.append(line)
-                  else:
-                      new_lines.append(line)
-              content = '\n'.join(new_lines)
-
-              print("===== FIXED connection_rotator.dart =====")
-              print(content)
-
-              if content != original:
-                  with open(filepath, 'w', encoding='utf-8') as f:
-                      f.write(content)
-                  print("✅ connection_rotator.dart berhasil diperbaiki")
               else:
-                  print("Tidak ada perubahan pada connection_rotator.dart")
+                  if 'HttpClient' in line or 'IOClient' in line:
+                      seen_bad_cert = False
+                  new_lines.append(line)
+          content = '\n'.join(new_lines)
+
+          # Tambahkan import yang dibutuhkan di paling atas
+          required_imports = [
+              "import 'dart:io';",
+              "import 'package:http/http.dart' as http;",
+              "import 'package:http/io_client.dart';",
+          ]
+          for imp in reversed(required_imports):
+              if imp not in content:
+                  content = imp + '\n' + content
+
+          # Hapus duplikat import
+          seen_imports = set()
+          lines = content.split('\n')
+          new_lines = []
+          for line in lines:
+              stripped = line.strip()
+              if stripped.startswith("import "):
+                  if stripped not in seen_imports:
+                      seen_imports.add(stripped)
+                      new_lines.append(line)
+              else:
+                  new_lines.append(line)
+          content = '\n'.join(new_lines)
+
+          print("===== FIXED connection_rotator.dart =====")
+          print(content)
+
+          with open(filepath, 'w', encoding='utf-8') as f:
+              f.write(content)
+          print("connection_rotator.dart berhasil diperbaiki")
           EOF
+
+          fi
 
       - name: Update Android SDK Version in build.gradle
         run: |
@@ -585,4 +610,4 @@ jobs:
           echo "Build Mode: ${{ github.event.inputs.build_mode }}"
           echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
           echo "Status: SUCCESS"
-          echo "=========================================="                                            
+          echo "=========================================="                                                            
