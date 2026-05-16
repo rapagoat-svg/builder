@@ -64,7 +64,6 @@ jobs:
           fi
           PROJ_DIR="${PROJ_DIR#./}"
           echo "Found project at: $PROJ_DIR"
-
           if [ "$PROJ_DIR" != "." ] && [ -n "$PROJ_DIR" ]; then
             echo "Moving contents to root..."
             mv "$PROJ_DIR"/* ./ 2>/dev/null || true
@@ -335,34 +334,21 @@ jobs:
               try:
                   with open(filepath, 'r', encoding='utf-8') as f:
                       content = f.read()
-
                   original = content
-
-                  # Hapus import font_awesome_flutter
                   content = re.sub(r"^import\s+'package:font_awesome_flutter/[^']*';\s*\n?", '', content, flags=re.MULTILINE)
                   content = re.sub(r'^import\s+"package:font_awesome_flutter/[^"]*";\s*\n?', '', content, flags=re.MULTILINE)
-
-                  # Hapus import package lain (JANGAN hapus http)
                   for pkg in ['dio', 'pretty_dio_logger', 'flutter_lints', 'flutter_native_splash', 'flutter_launcher_icons', 'icon_data']:
                       content = re.sub(rf"^import\s+'package:{pkg}/[^']*';\s*\n?", '', content, flags=re.MULTILINE)
                       content = re.sub(rf'^import\s+"package:{pkg}/[^"]*";\s*\n?', '', content, flags=re.MULTILINE)
-
-                  # Ganti icon dari map
                   for fa_icon, material_icon in fa_icon_map.items():
                       content = content.replace(fa_icon, material_icon)
-
-                  # Ganti sisa FontAwesomeIcons yang tidak ada di map
                   content = re.sub(r'FontAwesomeIcons\.(\w+)', r'Icons.widgets', content)
-
-                  # Ganti FaIcon -> Icon
                   content = re.sub(r'\bFaIcon\s*\(', 'Icon(', content)
-
                   if content != original:
                       with open(filepath, 'w', encoding='utf-8') as f:
                           f.write(content)
                       total_fixed += 1
                       print(f"Fixed: {filepath}")
-
               except Exception as e:
                   print(f"Skip {filepath}: {e}")
 
@@ -372,26 +358,20 @@ jobs:
 
       - name: Fix Invalid Material Icons
         run: |
-          echo "Fixing invalid/typo Material Icons in all dart files..."
           python3 << 'EOF'
           import glob, re
 
-          # Daftar icon tidak valid -> pengganti yang benar
           invalid_icon_map = {
-              # Typo dobel huruf
-              "Icons.settingss":             "Icons.settings",
-              "Icons.homee":                 "Icons.home",
-              "Icons.searchh":               "Icons.search",
-              # Icon tidak ada di Material
-              "Icons.personShield":          "Icons.admin_panel_settings",
-              "Icons.shieldPerson":          "Icons.admin_panel_settings",
-              "Icons.userShield":            "Icons.admin_panel_settings",
-              "Icons.calendar_todayAlt":     "Icons.calendar_month",
-              "Icons.info_outlineCircle":    "Icons.info_outline",
-              "Icons.access_timeAlt":        "Icons.access_time",
-              "Icons.location_onAlt":        "Icons.location_on",
-              "Icons.delete_outlineAlt":     "Icons.delete_outline",
-              "Icons.add_circle_outlineAlt": "Icons.add_circle_outline",
+              "Icons.settingss":               "Icons.settings",
+              "Icons.personShield":            "Icons.admin_panel_settings",
+              "Icons.shieldPerson":            "Icons.admin_panel_settings",
+              "Icons.userShield":              "Icons.admin_panel_settings",
+              "Icons.calendar_todayAlt":       "Icons.calendar_month",
+              "Icons.info_outlineCircle":      "Icons.info_outline",
+              "Icons.access_timeAlt":          "Icons.access_time",
+              "Icons.location_onAlt":          "Icons.location_on",
+              "Icons.delete_outlineAlt":       "Icons.delete_outline",
+              "Icons.add_circle_outlineAlt":   "Icons.add_circle_outline",
               "Icons.check_circle_outlineAlt": "Icons.check_circle_outline",
           }
 
@@ -416,28 +396,20 @@ jobs:
                   print(f"Skip {filepath}: {e}")
 
           print(f"Total files with icon fixes: {total_fixed}")
-
-          # Cek dan print semua icon mencurigakan yang masih tersisa
-          print("\n--- Scanning for potentially invalid icons ---")
-          for filepath in dart_files:
-              try:
-                  with open(filepath, 'r', encoding='utf-8') as f:
-                      content = f.read()
-                  # Cari Icons.xxxYyy (camelCase setelah underscore atau langsung)
-                  suspects = re.findall(r'Icons\.[a-z_]+[A-Z]\w*', content)
-                  if suspects:
-                      print(f"{filepath}: {set(suspects)}")
-              except:
-                  pass
           EOF
           echo "Icon fix completed"
 
-      - name: Overwrite connection_rotator.dart (Force Fix)
+      # ============================================================
+      # FIX: Gunakan cat heredoc dengan single-quote untuk mencegah
+      # Python menginterpretasi ${...} sebagai variable interpolasi.
+      # Baris findProxy menggunakan string concatenation, bukan
+      # Dart string interpolation, untuk menghindari konflik escaping.
+      # ============================================================
+      - name: Force Overwrite connection_rotator.dart
         run: |
-          FILEPATH="lib/services/connection_rotator.dart"
-          if [ -f "$FILEPATH" ]; then
-            echo "Overwriting $FILEPATH with fixed version..."
-            cat > "$FILEPATH" << 'DARTEOF'
+          mkdir -p lib/services
+
+          cat > lib/services/connection_rotator.dart << 'DARTEOF'
           import 'dart:io';
           import 'dart:math';
           import 'package:http/http.dart' as http;
@@ -494,7 +466,9 @@ jobs:
                 try {
                   final proxyUri = Uri.parse(proxy);
                   final httpClient = HttpClient()
-                    ..findProxy = (uri) => "PROXY ${proxyUri.host}:${proxyUri.port}"
+                    // FIX: Gunakan string concatenation, bukan interpolasi,
+                    // agar tidak bentrok dengan escaping Python/YAML
+                    ..findProxy = (uri) => "PROXY " + proxyUri.host + ":" + proxyUri.port.toString()
                     ..badCertificateCallback = (cert, host, port) => true;
                   return IOClient(httpClient);
                 } catch (e) {
@@ -519,36 +493,32 @@ jobs:
             }
 
             String getCurrentProxyInfo() {
-              if (!useProxy || proxyList.isEmpty) return "⚫ Proxy OFF";
-              return "🟢 Proxy ACTIVE (${proxyList.length} proxies)";
+              if (!useProxy || proxyList.isEmpty) return "Proxy OFF";
+              return "Proxy ACTIVE (" + proxyList.length.toString() + " proxies)";
             }
 
             int getProxyCount() => proxyList.length;
           }
           DARTEOF
-            echo "✅ connection_rotator.dart berhasil ditimpa"
-            cat "$FILEPATH"
-          else
-            echo "⚠️ File tidak ditemukan: $FILEPATH"
-          fi
+
+          echo "SUCCESS: connection_rotator.dart ditulis ulang"
+          echo "--- ISI FILE ---"
+          cat lib/services/connection_rotator.dart
 
       - name: Update Android SDK Version in build.gradle
         run: |
           SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-
           if [ -f "android/app/build.gradle" ]; then
             sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" android/app/build.gradle
             sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" android/app/build.gradle
             sed -i "s/minSdkVersion [0-9]*/minSdkVersion 21/" android/app/build.gradle
             echo "build.gradle updated"
           fi
-
           if [ -f "android/app/build.gradle.kts" ]; then
             sed -i "s/compileSdk = [0-9]*/compileSdk = $SDK_VERSION/" android/app/build.gradle.kts
             sed -i "s/targetSdk = [0-9]*/targetSdk = $SDK_VERSION/" android/app/build.gradle.kts
             echo "build.gradle.kts updated"
           fi
-
           mkdir -p android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
           echo "local.properties created"
@@ -585,7 +555,6 @@ jobs:
             flutter build apk --debug --no-tree-shake-icons
             APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
           fi
-
           if [ ! -f "$APK_PATH" ]; then
             if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
               APK_PATH="build/app/outputs/apk/release/app-release.apk"
@@ -597,11 +566,10 @@ jobs:
               exit 1
             fi
           fi
-
           echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
           APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
           echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
-          echo "✅ APK built successfully! Size: $APK_SIZE"
+          echo "APK built successfully! Size: $APK_SIZE"
           ls -lh "$APK_PATH"
 
       - name: Upload APK Artifact
@@ -627,7 +595,7 @@ jobs:
       - name: Build Summary
         run: |
           echo "=========================================="
-          echo "✅ BUILD SUMMARY ✅"
+          echo "BUILD SUMMARY"
           echo "=========================================="
           echo "Job ID: ${{ github.event.inputs.job_id }}"
           echo "Project Name: $(grep '^name:' pubspec.yaml | cut -d' ' -f2)"
