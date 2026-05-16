@@ -85,7 +85,6 @@ jobs:
           with open("pubspec.yaml", "r") as f:
               content = f.read()
 
-          # 1) Perbaiki SDK constraint
           lines = content.split('\n')
           in_environment = False
           new_lines = []
@@ -103,7 +102,6 @@ jobs:
                   new_lines.append(line)
           content = '\n'.join(new_lines)
 
-          # 2) Hapus dependency bermasalah (JANGAN hapus http - dibutuhkan connection_rotator)
           bad_deps = [
               "font_awesome_flutter", "icon_data", "flutter_lints",
               "flutter_native_splash", "flutter_launcher_icons",
@@ -119,7 +117,6 @@ jobs:
 
           content = re.sub(r'\n{3,}', '\n\n', content)
 
-          # Pastikan http ada
           if "  http:" not in content:
               content = re.sub(
                   r'(^dependencies:\s*\n)',
@@ -354,30 +351,11 @@ jobs:
                   for fa_icon, material_icon in fa_icon_map.items():
                       content = content.replace(fa_icon, material_icon)
 
-                  # Ganti sisa FontAwesomeIcons
+                  # Ganti sisa FontAwesomeIcons yang tidak ada di map
                   content = re.sub(r'FontAwesomeIcons\.(\w+)', r'Icons.widgets', content)
 
                   # Ganti FaIcon -> Icon
                   content = re.sub(r'\bFaIcon\s*\(', 'Icon(', content)
-
-                  # FIX: Bersihkan icon tidak valid hasil dari concatenation/typo
-                  content = content.replace('Icons.info_outlineCircle', 'Icons.info_outline')
-                  content = content.replace('Icons.calendar_todayAlt', 'Icons.calendar_month')
-                  content = content.replace('Icons.calendar_todayMonth', 'Icons.calendar_month')
-
-                  # FIX: Tangkap semua Icons.xxxYyy yang tidak valid (camelCase setelah prefix valid)
-                  # Pattern: Icons.<valid_name><ExtraWord> -> Icons.<valid_name>
-                  known_invalid = [
-                      ('Icons.calendar_todayAlt', 'Icons.calendar_month'),
-                      ('Icons.access_timeAlt', 'Icons.access_time'),
-                      ('Icons.location_onAlt', 'Icons.location_on'),
-                      ('Icons.delete_outlineAlt', 'Icons.delete_outline'),
-                      ('Icons.add_circle_outlineAlt', 'Icons.add_circle_outline'),
-                      ('Icons.remove_circle_outlineAlt', 'Icons.remove_circle_outline'),
-                      ('Icons.check_circle_outlineAlt', 'Icons.check_circle_outline'),
-                  ]
-                  for bad, good in known_invalid:
-                      content = content.replace(bad, good)
 
                   if content != original:
                       with open(filepath, 'w', encoding='utf-8') as f:
@@ -392,119 +370,166 @@ jobs:
           EOF
           echo "Dart code fix completed"
 
-          # -------------------------------------------------------
-          # FIX TAMBAHAN: Pastikan tidak ada icon tidak valid tersisa
-          # -------------------------------------------------------
-          echo "Running extra icon validation pass..."
-          find lib -name "*.dart" -exec sed -i \
-            -e 's/Icons\.calendar_todayAlt/Icons.calendar_month/g' \
-            -e 's/Icons\.info_outlineCircle/Icons.info_outline/g' \
-            -e 's/Icons\.access_timeAlt/Icons.access_time/g' \
-            -e 's/Icons\.location_onAlt/Icons.location_on/g' \
-            {} \;
-          echo "Extra icon validation pass completed"
-
-      - name: Fix Connection Rotator HttpClient Issue
+      - name: Fix Invalid Material Icons
         run: |
-          # -------------------------------------------------------
-          # STRATEGI: Tulis ulang file connection_rotator.dart
-          # sepenuhnya dengan implementasi yang benar.
-          # Ini lebih andal daripada patch regex.
-          # -------------------------------------------------------
-          FILEPATH="lib/services/connection_rotator.dart"
+          echo "Fixing invalid/typo Material Icons in all dart files..."
+          python3 << 'EOF'
+          import glob, re
 
-          if [ ! -f "$FILEPATH" ]; then
-            echo "File connection_rotator.dart tidak ditemukan, skip"
-          else
-            echo "===== ORIGINAL connection_rotator.dart ====="
-            cat "$FILEPATH"
+          # Daftar icon tidak valid -> pengganti yang benar
+          invalid_icon_map = {
+              # Typo dobel huruf
+              "Icons.settingss":             "Icons.settings",
+              "Icons.homee":                 "Icons.home",
+              "Icons.searchh":               "Icons.search",
+              # Icon tidak ada di Material
+              "Icons.personShield":          "Icons.admin_panel_settings",
+              "Icons.shieldPerson":          "Icons.admin_panel_settings",
+              "Icons.userShield":            "Icons.admin_panel_settings",
+              "Icons.calendar_todayAlt":     "Icons.calendar_month",
+              "Icons.info_outlineCircle":    "Icons.info_outline",
+              "Icons.access_timeAlt":        "Icons.access_time",
+              "Icons.location_onAlt":        "Icons.location_on",
+              "Icons.delete_outlineAlt":     "Icons.delete_outline",
+              "Icons.add_circle_outlineAlt": "Icons.add_circle_outline",
+              "Icons.check_circle_outlineAlt": "Icons.check_circle_outline",
+          }
 
-            python3 << 'EOF'
-          import os, re
+          dart_files = glob.glob('lib/**/*.dart', recursive=True)
+          dart_files += glob.glob('lib/*.dart')
+          dart_files = list(set(dart_files))
 
-          filepath = "lib/services/connection_rotator.dart"
+          total_fixed = 0
+          for filepath in dart_files:
+              try:
+                  with open(filepath, 'r', encoding='utf-8') as f:
+                      content = f.read()
+                  original = content
+                  for bad, good in invalid_icon_map.items():
+                      content = content.replace(bad, good)
+                  if content != original:
+                      with open(filepath, 'w', encoding='utf-8') as f:
+                          f.write(content)
+                      total_fixed += 1
+                      print(f"Fixed icons in: {filepath}")
+              except Exception as e:
+                  print(f"Skip {filepath}: {e}")
 
-          with open(filepath, 'r', encoding='utf-8') as f:
-              content = f.read()
+          print(f"Total files with icon fixes: {total_fixed}")
 
-          original = content
-
-          # Hapus import lama yang mungkin konflik
-          content = re.sub(r"^import\s+'package:http/io_client\.dart'[^\n]*\n?", '', content, flags=re.MULTILINE)
-          content = re.sub(r'^import\s+"package:http/io_client\.dart"[^\n]*\n?', '', content, flags=re.MULTILINE)
-          content = re.sub(r"^import\s+'dart:io';\s*\n?", '', content, flags=re.MULTILINE)
-          content = re.sub(r'^import\s+"dart:io";\s*\n?', '', content, flags=re.MULTILINE)
-
-          # Perbaiki return type
-          content = re.sub(r'Future<\s*HttpClient\s*>', 'Future<http.Client>', content)
-          content = re.sub(r'Future<\s*Client\s*>', 'Future<http.Client>', content)
-
-          # Perbaiki isi fungsi - return http.Client() -> return IOClient(...)
-          content = re.sub(
-              r'return\s+http\.Client\(\)\s*;',
-              'return IOClient(HttpClient()..badCertificateCallback = (cert, host, port) => true);',
-              content
-          )
-          # return HttpClient() -> return IOClient(...)
-          content = re.sub(
-              r'return\s+HttpClient\(\)\s*;',
-              'return IOClient(HttpClient()..badCertificateCallback = (cert, host, port) => true);',
-              content
-          )
-          # Pastikan HttpClient yang dibuat punya badCertificateCallback
-          content = re.sub(
-              r'HttpClient\s+(\w+)\s*=\s*HttpClient\(\)\s*;',
-              r'HttpClient \1 = HttpClient()..badCertificateCallback = (cert, host, port) => true;',
-              content
-          )
-
-          # Hapus duplikat badCertificateCallback
-          lines = content.split('\n')
-          seen_bad_cert = False
-          new_lines = []
-          for line in lines:
-              if 'badCertificateCallback' in line:
-                  if not seen_bad_cert:
-                      seen_bad_cert = True
-                      new_lines.append(line)
-              else:
-                  if 'HttpClient' in line or 'IOClient' in line:
-                      seen_bad_cert = False
-                  new_lines.append(line)
-          content = '\n'.join(new_lines)
-
-          # Tambahkan import yang dibutuhkan di paling atas
-          required_imports = [
-              "import 'dart:io';",
-              "import 'package:http/http.dart' as http;",
-              "import 'package:http/io_client.dart';",
-          ]
-          for imp in reversed(required_imports):
-              if imp not in content:
-                  content = imp + '\n' + content
-
-          # Hapus duplikat import
-          seen_imports = set()
-          lines = content.split('\n')
-          new_lines = []
-          for line in lines:
-              stripped = line.strip()
-              if stripped.startswith("import "):
-                  if stripped not in seen_imports:
-                      seen_imports.add(stripped)
-                      new_lines.append(line)
-              else:
-                  new_lines.append(line)
-          content = '\n'.join(new_lines)
-
-          print("===== FIXED connection_rotator.dart =====")
-          print(content)
-
-          with open(filepath, 'w', encoding='utf-8') as f:
-              f.write(content)
-          print("connection_rotator.dart berhasil diperbaiki")
+          # Cek dan print semua icon mencurigakan yang masih tersisa
+          print("\n--- Scanning for potentially invalid icons ---")
+          for filepath in dart_files:
+              try:
+                  with open(filepath, 'r', encoding='utf-8') as f:
+                      content = f.read()
+                  # Cari Icons.xxxYyy (camelCase setelah underscore atau langsung)
+                  suspects = re.findall(r'Icons\.[a-z_]+[A-Z]\w*', content)
+                  if suspects:
+                      print(f"{filepath}: {set(suspects)}")
+              except:
+                  pass
           EOF
+          echo "Icon fix completed"
 
+      - name: Overwrite connection_rotator.dart (Force Fix)
+        run: |
+          FILEPATH="lib/services/connection_rotator.dart"
+          if [ -f "$FILEPATH" ]; then
+            echo "Overwriting $FILEPATH with fixed version..."
+            cat > "$FILEPATH" << 'DARTEOF'
+          import 'dart:io';
+          import 'dart:math';
+          import 'package:http/http.dart' as http;
+          import 'package:http/io_client.dart';
+
+          class ConnectionRotator {
+            final Random _rand = Random();
+            List<String> proxyList = [];
+            List<String> realIpList = [];
+
+            bool useProxy = false;
+            bool useIpRotation = false;
+
+            ConnectionRotator() {
+              proxyList = [
+                "http://52.233.143.240:443",
+                "http://52.157.156.231:443",
+                "http://45.142.18.246:443",
+                "http://45.153.231.229:8080",
+                "http://176.61.151.123:80",
+                "http://40.115.38.83:443",
+                "http://149.210.158.107:5001",
+                "http://5.255.97.220:443",
+              ];
+
+              realIpList = List.generate(
+                5000,
+                (i) =>
+                    "${_rand.nextInt(255)}.${_rand.nextInt(255)}.${_rand.nextInt(255)}.${_rand.nextInt(255)}",
+              );
+            }
+
+            void addProxy(String proxy) {
+              if (proxy.trim().isNotEmpty && !proxyList.contains(proxy)) {
+                proxyList.add(proxy);
+              }
+            }
+
+            void removeProxy(int index) {
+              if (index >= 0 && index < proxyList.length) {
+                proxyList.removeAt(index);
+              }
+            }
+
+            http.Client _buildPlainClient() {
+              final httpClient = HttpClient()
+                ..badCertificateCallback = (cert, host, port) => true;
+              return IOClient(httpClient);
+            }
+
+            Future<http.Client> getRotatedClient() async {
+              if (useProxy && proxyList.isNotEmpty) {
+                final proxy = proxyList[_rand.nextInt(proxyList.length)];
+                try {
+                  final proxyUri = Uri.parse(proxy);
+                  final httpClient = HttpClient()
+                    ..findProxy = (uri) => "PROXY ${proxyUri.host}:${proxyUri.port}"
+                    ..badCertificateCallback = (cert, host, port) => true;
+                  return IOClient(httpClient);
+                } catch (e) {
+                  return _buildPlainClient();
+                }
+              }
+              return _buildPlainClient();
+            }
+
+            Map<String, String> getSpoofedHeaders() {
+              if (!useIpRotation) return {};
+              return {
+                "X-Forwarded-For": realIpList[_rand.nextInt(realIpList.length)],
+                "X-Real-IP": realIpList[_rand.nextInt(realIpList.length)],
+                "Client-IP": realIpList[_rand.nextInt(realIpList.length)],
+                "True-Client-IP": realIpList[_rand.nextInt(realIpList.length)],
+                "CF-Connecting-IP": realIpList[_rand.nextInt(realIpList.length)],
+                "X-Originating-IP": realIpList[_rand.nextInt(realIpList.length)],
+                "X-Remote-IP": realIpList[_rand.nextInt(realIpList.length)],
+                "X-Remote-Addr": realIpList[_rand.nextInt(realIpList.length)],
+              };
+            }
+
+            String getCurrentProxyInfo() {
+              if (!useProxy || proxyList.isEmpty) return "⚫ Proxy OFF";
+              return "🟢 Proxy ACTIVE (${proxyList.length} proxies)";
+            }
+
+            int getProxyCount() => proxyList.length;
+          }
+          DARTEOF
+            echo "✅ connection_rotator.dart berhasil ditimpa"
+            cat "$FILEPATH"
+          else
+            echo "⚠️ File tidak ditemukan: $FILEPATH"
           fi
 
       - name: Update Android SDK Version in build.gradle
@@ -610,4 +635,4 @@ jobs:
           echo "Build Mode: ${{ github.event.inputs.build_mode }}"
           echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
           echo "Status: SUCCESS"
-          echo "=========================================="                                                            
+          echo "=========================================="
