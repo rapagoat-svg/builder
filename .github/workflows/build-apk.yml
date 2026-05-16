@@ -399,33 +399,66 @@ jobs:
           EOF
           echo "Icon fix completed"
 
-      # ============================================================
-      # FINAL FIX: Tulis connection_rotator.dart pakai base64
-      # Cara ini 100% aman - tidak ada masalah escaping sama sekali
-      # karena file dikirim sebagai base64 lalu di-decode
-      # ============================================================
       - name: Force Overwrite connection_rotator.dart (base64)
         run: |
           mkdir -p lib/services
           echo "aW1wb3J0ICdkYXJ0OmlvJzsKaW1wb3J0ICdkYXJ0Om1hdGgnOwppbXBvcnQgJ3BhY2thZ2U6aHR0cC9odHRwLmRhcnQnIGFzIGh0dHA7CmltcG9ydCAncGFja2FnZTpodHRwL2lvX2NsaWVudC5kYXJ0JzsKCmNsYXNzIENvbm5lY3Rpb25Sb3RhdG9yIHsKICBmaW5hbCBSYW5kb20gX3JhbmQgPSBSYW5kb20oKTsKICBMaXN0PFN0cmluZz4gcHJveHlMaXN0ID0gW107CiAgTGlzdDxTdHJpbmc+IHJlYWxJcExpc3QgPSBbXTsKCiAgYm9vbCB1c2VQcm94eSA9IGZhbHNlOwogIGJvb2wgdXNlSXBSb3RhdGlvbiA9IGZhbHNlOwoKICBDb25uZWN0aW9uUm90YXRvcigpIHsKICAgIHByb3h5TGlzdCA9IFsKICAgICAgImh0dHA6Ly81Mi4yMzMuMTQzLjI0MDo0NDMiLAogICAgICAiaHR0cDovLzUyLjE1Ny4xNTYuMjMxOjQ0MyIsCiAgICAgICJodHRwOi8vNDUuMTQyLjE4LjI0Njo0NDMiLAogICAgICAiaHR0cDovLzQ1LjE1My4yMzEuMjI5OjgwODAiLAogICAgICAiaHR0cDovLzE3Ni42MS4xNTEuMTIzOjgwIiwKICAgICAgImh0dHA6Ly80MC4xMTUuMzguODM6NDQzIiwKICAgICAgImh0dHA6Ly8xNDkuMjEwLjE1OC4xMDc6NTAwMSIsCiAgICAgICJodHRwOi8vNS4yNTUuOTcuMjIwOjQ0MyIsCiAgICBdOwoKICAgIHJlYWxJcExpc3QgPSBMaXN0LmdlbmVyYXRlKDUwMDAsIChpKSA9PgogICAgICAiJHtfcmFuZC5uZXh0SW50KDI1NSl9LiR7X3JhbmQubmV4dEludCgyNTUpfS4ke19yYW5kLm5leHRJbnQoMjU1KX0uJHtfcmFuZC5uZXh0SW50KDI1NSl9IgogICAgKTsKICB9CgogIHZvaWQgYWRkUHJveHkoU3RyaW5nIHByb3h5KSB7CiAgICBpZiAocHJveHkudHJpbSgpLmlzTm90RW1wdHkgJiYgIXByb3h5TGlzdC5jb250YWlucyhwcm94eSkpIHsKICAgICAgcHJveHlMaXN0LmFkZChwcm94eSk7CiAgICB9CiAgfQoKICB2b2lkIHJlbW92ZVByb3h5KGludCBpbmRleCkgewogICAgaWYgKGluZGV4ID49IDAgJiYgaW5kZXggPCBwcm94eUxpc3QubGVuZ3RoKSB7CiAgICAgIHByb3h5TGlzdC5yZW1vdmVBdChpbmRleCk7CiAgICB9CiAgfQoKICBGdXR1cmU8aHR0cC5DbGllbnQ+IGdldFJvdGF0ZWRDbGllbnQoKSBhc3luYyB7CiAgICBpZiAodXNlUHJveHkgJiYgcHJveHlMaXN0LmlzTm90RW1wdHkpIHsKICAgICAgZmluYWwgcHJveHkgPSBwcm94eUxpc3RbX3JhbmQubmV4dEludChwcm94eUxpc3QubGVuZ3RoKV07CiAgICAgIHRyeSB7CiAgICAgICAgZmluYWwgcHJveHlVcmkgPSBVcmkucGFyc2UocHJveHkpOwogICAgICAgIGZpbmFsIGh0dHBDbGllbnQgPSBIdHRwQ2xpZW50KCk7CiAgICAgICAgaHR0cENsaWVudC5maW5kUHJveHkgPSAodXJpKSA9PiAiUFJPWFkgJHtwcm94eVVyaS5ob3N0fToke3Byb3h5VXJpLnBvcnR9IjsKICAgICAgICBodHRwQ2xpZW50LmJhZENlcnRpZmljYXRlQ2FsbGJhY2sgPSAoY2VydCwgaG9zdCwgcG9ydCkgPT4gdHJ1ZTsKICAgICAgICByZXR1cm4gSU9DbGllbnQoaHR0cENsaWVudCk7CiAgICAgIH0gY2F0Y2ggKGUpIHsKICAgICAgICByZXR1cm4gaHR0cC5DbGllbnQoKTsKICAgICAgfQogICAgfQogICAgcmV0dXJuIGh0dHAuQ2xpZW50KCk7CiAgfQoKICBNYXA8U3RyaW5nLCBTdHJpbmc+IGdldFNwb29mZWRIZWFkZXJzKCkgewogICAgaWYgKCF1c2VJcFJvdGF0aW9uKSByZXR1cm4ge307CiAgICByZXR1cm4gewogICAgICAiWC1Gb3J3YXJkZWQtRm9yIjogcmVhbElwTGlzdFtfcmFuZC5uZXh0SW50KHJlYWxJcExpc3QubGVuZ3RoKV0sCiAgICAgICJYLVJlYWwtSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIkNsaWVudC1JUCI6IHJlYWxJcExpc3RbX3JhbmQubmV4dEludChyZWFsSXBMaXN0Lmxlbmd0aCldLAogICAgICAiVHJ1ZS1DbGllbnQtSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIkNGLUNvbm5lY3RpbmctSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIlgtT3JpZ2luYXRpbmctSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIlgtUmVtb3RlLUlQIjogcmVhbElwTGlzdFtfcmFuZC5uZXh0SW50KHJlYWxJcExpc3QubGVuZ3RoKV0sCiAgICAgICJYLVJlbW90ZS1BZGRyIjogcmVhbElwTGlzdFtfcmFuZC5uZXh0SW50KHJlYWxJcExpc3QubGVuZ3RoKV0sCiAgICB9OwogIH0KCiAgU3RyaW5nIGdldEN1cnJlbnRQcm94eUluZm8oKSB7CiAgICBpZiAoIXVzZVByb3h5IHx8IHByb3h5TGlzdC5pc0VtcHR5KSByZXR1cm4gIlByb3h5IE9GRiI7CiAgICByZXR1cm4gIlByb3h5IEFDVElWRSAoJHtwcm94eUxpc3QubGVuZ3RofSBwcm94aWVzKSI7CiAgfQoKICBpbnQgZ2V0UHJveHlDb3VudCgpID0+IHByb3h5TGlzdC5sZW5ndGg7Cn0K" | base64 -d > lib/services/connection_rotator.dart
-          echo "=== VERIFY ISI FILE ==="
+          echo "=== VERIFY ==="
           cat lib/services/connection_rotator.dart
-          echo "=== DONE ==="
 
-      - name: Update Android SDK Version in build.gradle
+      # ============================================================
+      # FIX BARU: Update compileSdk pakai Python
+      # Handles semua format: build.gradle (Groovy) & build.gradle.kts (Kotlin DSL)
+      # ============================================================
+      - name: Fix Android compileSdk Version
         run: |
           SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-          if [ -f "android/app/build.gradle" ]; then
-            sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" android/app/build.gradle
-            sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" android/app/build.gradle
-            sed -i "s/minSdkVersion [0-9]*/minSdkVersion 21/" android/app/build.gradle
-            echo "build.gradle updated"
-          fi
-          if [ -f "android/app/build.gradle.kts" ]; then
-            sed -i "s/compileSdk = [0-9]*/compileSdk = $SDK_VERSION/" android/app/build.gradle.kts
-            sed -i "s/targetSdk = [0-9]*/targetSdk = $SDK_VERSION/" android/app/build.gradle.kts
-            echo "build.gradle.kts updated"
-          fi
+          echo "Target SDK: $SDK_VERSION"
+
+          python3 << PYEOF
+          import re, os, glob
+
+          sdk = "$SDK_VERSION"
+
+          # Cari semua build.gradle dan build.gradle.kts
+          gradle_files = glob.glob('android/**/build.gradle', recursive=True)
+          gradle_files += glob.glob('android/**/build.gradle.kts', recursive=True)
+          gradle_files = list(set(gradle_files))
+
+          print(f"Found gradle files: {gradle_files}")
+
+          for filepath in gradle_files:
+              try:
+                  with open(filepath, 'r') as f:
+                      content = f.read()
+                  original = content
+
+                  # Groovy DSL: compileSdkVersion 33
+                  content = re.sub(r'compileSdkVersion\s+\d+', f'compileSdkVersion {sdk}', content)
+                  # Kotlin DSL: compileSdk = 33
+                  content = re.sub(r'compileSdk\s*=\s*\d+', f'compileSdk = {sdk}', content)
+                  # Groovy DSL: targetSdkVersion 33
+                  content = re.sub(r'targetSdkVersion\s+\d+', f'targetSdkVersion {sdk}', content)
+                  # Kotlin DSL: targetSdk = 33
+                  content = re.sub(r'targetSdk\s*=\s*\d+', f'targetSdk = {sdk}', content)
+                  # minSdk selalu 21
+                  content = re.sub(r'minSdkVersion\s+\d+', 'minSdkVersion 21', content)
+                  content = re.sub(r'minSdk\s*=\s*\d+', 'minSdk = 21', content)
+
+                  if content != original:
+                      with open(filepath, 'w') as f:
+                          f.write(content)
+                      print(f"Fixed: {filepath}")
+                  else:
+                      print(f"No change needed: {filepath}")
+
+                  print(f"--- {filepath} ---")
+                  print(content[:500])
+              except Exception as e:
+                  print(f"Error on {filepath}: {e}")
+          PYEOF
+
+          # Buat local.properties
           mkdir -p android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
           echo "local.properties created"
@@ -494,9 +527,8 @@ jobs:
           path: |
             pubspec.yaml
             android/app/build.gradle
+            android/app/build.gradle.kts
             lib/services/connection_rotator.dart
-            build/
-            .dart_tool/
           retention-days: 3
 
       - name: Build Summary
