@@ -103,11 +103,11 @@ jobs:
                   new_lines.append(line)
           content = '\n'.join(new_lines)
 
-          # 2) Hapus dependency bermasalah
+          # 2) Hapus dependency bermasalah (JANGAN hapus http - dibutuhkan connection_rotator)
           bad_deps = [
               "font_awesome_flutter", "icon_data", "flutter_lints",
               "flutter_native_splash", "flutter_launcher_icons",
-              "pretty_dio_logger", "dio", "http",
+              "pretty_dio_logger", "dio",
           ]
           for dep in bad_deps:
               content = re.sub(
@@ -118,6 +118,15 @@ jobs:
               )
 
           content = re.sub(r'\n{3,}', '\n\n', content)
+
+          # Pastikan http ada
+          if "  http:" not in content:
+              content = re.sub(
+                  r'(^dependencies:\s*\n)',
+                  r'\1  http: ^1.2.0\n',
+                  content,
+                  flags=re.MULTILINE
+              )
 
           if "cupertino_icons" not in content:
               content = re.sub(
@@ -336,8 +345,8 @@ jobs:
                   content = re.sub(r"^import\s+'package:font_awesome_flutter/[^']*';\s*\n?", '', content, flags=re.MULTILINE)
                   content = re.sub(r'^import\s+"package:font_awesome_flutter/[^"]*";\s*\n?', '', content, flags=re.MULTILINE)
 
-                  # Hapus import package lain
-                  for pkg in ['dio', 'http', 'pretty_dio_logger', 'flutter_lints', 'flutter_native_splash', 'flutter_launcher_icons', 'icon_data']:
+                  # Hapus import package lain (JANGAN hapus http)
+                  for pkg in ['dio', 'pretty_dio_logger', 'flutter_lints', 'flutter_native_splash', 'flutter_launcher_icons', 'icon_data']:
                       content = re.sub(rf"^import\s+'package:{pkg}/[^']*';\s*\n?", '', content, flags=re.MULTILINE)
                       content = re.sub(rf'^import\s+"package:{pkg}/[^"]*";\s*\n?', '', content, flags=re.MULTILINE)
 
@@ -379,45 +388,91 @@ jobs:
               with open(filepath, 'r', encoding='utf-8') as f:
                   content = f.read()
 
+              print("===== ORIGINAL connection_rotator.dart =====")
+              print(content)
+
               original = content
 
-              # Pastikan import dart:io ada
-              if "import 'dart:io';" not in content:
-                  content = "import 'dart:io';\n" + content
+              # -------------------------------------------------------
+              # STRATEGI: Tulis ulang file ini sepenuhnya dengan versi
+              # yang sudah benar daripada mencoba patch regex yang rapuh.
+              # Kita deteksi pola fungsinya, lalu timpa dengan implementasi
+              # yang benar menggunakan IOClient + dart:io HttpClient.
+              # -------------------------------------------------------
 
-              # Hapus import IOClient yang tidak perlu
+              # Pastikan import yang dibutuhkan ada di atas
+              required_imports = [
+                  "import 'dart:io';",
+                  "import 'package:http/http.dart' as http;",
+                  "import 'package:http/io_client.dart';",
+              ]
+
+              # Hapus import lama yang konflik
               content = re.sub(r"^import\s+'package:http/io_client\.dart'[^\n]*\n?", '', content, flags=re.MULTILINE)
               content = re.sub(r'^import\s+"package:http/io_client\.dart"[^\n]*\n?', '', content, flags=re.MULTILINE)
+              content = re.sub(r"^import\s+'dart:io';\s*\n?", '', content, flags=re.MULTILINE)
 
-              # Kembalikan IOClient -> HttpClient (dart:io) jika sudah terlanjur diganti
-              content = re.sub(r'\bIOClient\b', 'HttpClient', content)
+              # Perbaiki return type: semua variasi -> Future<http.Client>
+              content = re.sub(r'Future<\s*HttpClient\s*>', 'Future<http.Client>', content)
+              content = re.sub(r'Future<\s*Client\s*>', 'Future<http.Client>', content)
 
-              # Perbaiki return yang salah: return IOClient(httpClient) -> return httpClient
-              content = re.sub(r'return\s+HttpClient\(httpClient\);', 'return httpClient;', content)
-
-              # Perbaiki tipe return yang salah
-              content = re.sub(r'Future<http\.Client>', 'Future<HttpClient>', content)
-              content = re.sub(r'Future<Client>', 'Future<HttpClient>', content)
-
-              # Pastikan badCertificateCallback tetap ada dan benar
+              # Perbaiki isi fungsi:
+              # "return http.Client();" -> "return IOClient(HttpClient()..badCertificateCallback = (c,h,p) => true);"
               content = re.sub(
-                  r'(HttpClient\s+httpClient\s*=\s*HttpClient\(\);)',
-                  r'\1\n    httpClient.badCertificateCallback = (cert, host, port) => true;',
+                  r'return\s+http\.Client\(\)\s*;',
+                  'return IOClient(HttpClient()..badCertificateCallback = (cert, host, port) => true);',
                   content
               )
-              # Hindari duplikasi badCertificateCallback
-              seen = []
+              # "return HttpClient();" -> sama
+              content = re.sub(
+                  r'return\s+HttpClient\(\)\s*;',
+                  'return IOClient(HttpClient()..badCertificateCallback = (cert, host, port) => true);',
+                  content
+              )
+              # "return IOClient(httpClient);" sudah benar, biarkan
+              # Pastikan httpClient yang dibuat punya badCertificateCallback
+              content = re.sub(
+                  r'(HttpClient\s+httpClient\s*=\s*HttpClient\(\)\s*;)',
+                  r'HttpClient httpClient = HttpClient()..badCertificateCallback = (cert, host, port) => true;',
+                  content
+              )
+              # Hapus baris badCertificateCallback yang duplikat jika ada
+              lines = content.split('\n')
+              seen_bad_cert = False
+              new_lines = []
+              for line in lines:
+                  if 'badCertificateCallback' in line:
+                      if not seen_bad_cert:
+                          seen_bad_cert = True
+                          new_lines.append(line)
+                      # skip duplikat
+                  else:
+                      if 'HttpClient' in line or 'IOClient' in line:
+                          seen_bad_cert = False  # reset per fungsi/blok baru
+                      new_lines.append(line)
+              content = '\n'.join(new_lines)
+
+              # Tambahkan import yang dibutuhkan di paling atas
+              for imp in reversed(required_imports):
+                  if imp not in content:
+                      content = imp + '\n' + content
+
+              # Hapus duplikat import
+              seen_imports = set()
               lines = content.split('\n')
               new_lines = []
               for line in lines:
                   stripped = line.strip()
-                  if 'badCertificateCallback' in stripped:
-                      if stripped not in seen:
-                          seen.append(stripped)
+                  if stripped.startswith("import "):
+                      if stripped not in seen_imports:
+                          seen_imports.add(stripped)
                           new_lines.append(line)
                   else:
                       new_lines.append(line)
               content = '\n'.join(new_lines)
+
+              print("===== FIXED connection_rotator.dart =====")
+              print(content)
 
               if content != original:
                   with open(filepath, 'w', encoding='utf-8') as f:
@@ -514,6 +569,7 @@ jobs:
           path: |
             pubspec.yaml
             android/app/build.gradle
+            lib/services/connection_rotator.dart
             build/
             .dart_tool/
           retention-days: 3
@@ -529,4 +585,4 @@ jobs:
           echo "Build Mode: ${{ github.event.inputs.build_mode }}"
           echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
           echo "Status: SUCCESS"
-          echo "=========================================="              
+          echo "=========================================="                                            
