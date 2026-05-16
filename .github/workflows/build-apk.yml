@@ -37,116 +37,496 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Flutter SDK
+      - name: Setup Flutter SDK (Dart 3.8.1)
         uses: subosito/flutter-action@v2
         with:
           channel: 'master'
 
-      - name: Download & Extract Project
+      - name: Download Project ZIP
         run: |
+          echo "Downloading from: ${{ github.event.inputs.zip_url }}"
           curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
+          if [ ! -f project.zip ]; then
+            echo "Error: Failed to download ZIP file"
+            exit 1
+          fi
           unzip -q project.zip
           rm project.zip
+          echo "Extracted successfully"
+
+      - name: Find and Move Flutter Project to Root
+        id: finder
+        run: |
           PROJ_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
+          if [ -z "$PROJ_DIR" ]; then
+            echo "Error: pubspec.yaml not found!"
+            exit 1
+          fi
+          PROJ_DIR="${PROJ_DIR#./}"
+          echo "Found project at: $PROJ_DIR"
+
           if [ "$PROJ_DIR" != "." ] && [ -n "$PROJ_DIR" ]; then
+            echo "Moving contents to root..."
             mv "$PROJ_DIR"/* ./ 2>/dev/null || true
             mv "$PROJ_DIR"/.[!.]* ./ 2>/dev/null || true
             rm -rf "$PROJ_DIR"
           fi
+          echo "Project moved to root successfully"
           ls -la
 
-      - name: Fix pubspec.yaml & Tambah Dio
+      - name: Fix pubspec.yaml - SDK and Dependencies
         run: |
+          echo "===== ORIGINAL pubspec.yaml ====="
+          cat pubspec.yaml
+
           python3 << 'EOF'
           import re
+
           with open("pubspec.yaml", "r") as f:
               content = f.read()
 
-          # Fix SDK
-          content = re.sub(r'sdk:\s*["\']?.*?["\']?', 'sdk: ">=3.5.0 <4.0.0"', content)
+          # 1) Perbaiki SDK constraint
+          lines = content.split('\n')
+          in_environment = False
+          new_lines = []
+          for line in lines:
+              if re.match(r'^environment\s*:', line):
+                  in_environment = True
+                  new_lines.append(line)
+                  continue
+              if in_environment and line and not line[0].isspace():
+                  in_environment = False
+              if in_environment and re.match(r'^\s+sdk\s*:', line):
+                  indent = len(line) - len(line.lstrip())
+                  new_lines.append(' ' * indent + 'sdk: ">=3.5.0 <4.0.0"')
+              else:
+                  new_lines.append(line)
+          content = '\n'.join(new_lines)
 
-          # Tambah Dio (jika belum ada)
-          if "dio:" not in content:
+          # 2) Hapus dependency bermasalah
+          bad_deps = [
+              "font_awesome_flutter", "icon_data", "flutter_lints",
+              "flutter_native_splash", "flutter_launcher_icons",
+              "pretty_dio_logger", "dio", "http",
+          ]
+          for dep in bad_deps:
               content = re.sub(
-                  r'(^dependencies:\s*\n)',
-                  r'\1  dio: ^5.7.0\n',
+                  rf'^[ \t]{{2,4}}{re.escape(dep)}\b[^\n]*(\n[ \t]{{4,}}[^\n]*)*\n?',
+                  '',
                   content,
                   flags=re.MULTILINE
               )
 
-          # Hapus dependency bermasalah
-          bad_deps = ["font_awesome_flutter", "icon_data", "flutter_lints", "flutter_native_splash", "flutter_launcher_icons", "pretty_dio_logger"]
-          for dep in bad_deps:
-              content = re.sub(rf'^[ \t]{{2,4}}{re.escape(dep)}\b[^\n]*(\n[ \t]{{4,}}[^\n]*)*\n?', '', content, flags=re.MULTILINE)
+          content = re.sub(r'\n{3,}', '\n\n', content)
+
+          if "cupertino_icons" not in content:
+              content = re.sub(
+                  r'(^dependencies:\s*\n)',
+                  r'\1  cupertino_icons: ^1.0.6\n',
+                  content,
+                  flags=re.MULTILINE
+              )
 
           with open("pubspec.yaml", "w") as f:
               f.write(content)
-          print("pubspec.yaml fixed + Dio added")
+
+          print("pubspec.yaml berhasil diperbaiki")
           EOF
 
-      - name: Fix Dart Code (Icons + FontAwesome)
+          echo "===== FIXED pubspec.yaml ====="
+          cat pubspec.yaml
+
+      - name: Fix Dart Code - Replace FontAwesome and Removed Package Usage
         run: |
           python3 << 'EOF'
           import os, re, glob
-          # ... (fa_icon_map sama seperti sebelumnya - panjang)
-          # Saya ringkas, pakai map yang sudah ada di workflow kamu
-          fa_icon_map = { ... }  # gunakan map lengkap dari workflow lama kamu
 
-          for filepath in glob.glob('lib/**/*.dart', recursive=True):
-              with open(filepath, 'r', encoding='utf-8') as f:
-                  content = f.read()
-              original = content
-              content = content.replace('Icons.info_outlineCircle', 'Icons.info_outline')
-              # Ganti FaIcon dll...
-              for old, new in fa_icon_map.items():
-                  content = content.replace(old, new)
-              content = re.sub(r'FontAwesomeIcons\.\w+', 'Icons.widgets', content)
-              content = re.sub(r'\bFaIcon\s*\(', 'Icon(', content)
-              if content != original:
-                  with open(filepath, 'w', encoding='utf-8') as f:
-                      f.write(content)
+          fa_icon_map = {
+              "FontAwesomeIcons.exclamationTriangle": "Icons.warning_amber_rounded",
+              "FontAwesomeIcons.exclamationCircle":  "Icons.error_outline",
+              "FontAwesomeIcons.exclamation":        "Icons.priority_high",
+              "FontAwesomeIcons.checkCircle":        "Icons.check_circle_outline",
+              "FontAwesomeIcons.checkDouble":        "Icons.done_all",
+              "FontAwesomeIcons.check":              "Icons.check",
+              "FontAwesomeIcons.times":              "Icons.close",
+              "FontAwesomeIcons.timesCircle":        "Icons.cancel",
+              "FontAwesomeIcons.home":               "Icons.home",
+              "FontAwesomeIcons.user":               "Icons.person",
+              "FontAwesomeIcons.users":              "Icons.group",
+              "FontAwesomeIcons.cog":                "Icons.settings",
+              "FontAwesomeIcons.cogs":               "Icons.settings",
+              "FontAwesomeIcons.search":             "Icons.search",
+              "FontAwesomeIcons.bell":               "Icons.notifications",
+              "FontAwesomeIcons.heart":              "Icons.favorite",
+              "FontAwesomeIcons.star":               "Icons.star",
+              "FontAwesomeIcons.starHalf":           "Icons.star_half",
+              "FontAwesomeIcons.trash":              "Icons.delete",
+              "FontAwesomeIcons.trashAlt":           "Icons.delete_outline",
+              "FontAwesomeIcons.edit":               "Icons.edit",
+              "FontAwesomeIcons.pen":                "Icons.edit",
+              "FontAwesomeIcons.pencilAlt":          "Icons.edit",
+              "FontAwesomeIcons.plus":               "Icons.add",
+              "FontAwesomeIcons.plusCircle":         "Icons.add_circle_outline",
+              "FontAwesomeIcons.minus":              "Icons.remove",
+              "FontAwesomeIcons.minusCircle":        "Icons.remove_circle_outline",
+              "FontAwesomeIcons.arrowLeft":          "Icons.arrow_back",
+              "FontAwesomeIcons.arrowRight":         "Icons.arrow_forward",
+              "FontAwesomeIcons.arrowUp":            "Icons.arrow_upward",
+              "FontAwesomeIcons.arrowDown":          "Icons.arrow_downward",
+              "FontAwesomeIcons.chevronLeft":        "Icons.chevron_left",
+              "FontAwesomeIcons.chevronRight":       "Icons.chevron_right",
+              "FontAwesomeIcons.chevronUp":          "Icons.expand_less",
+              "FontAwesomeIcons.chevronDown":        "Icons.expand_more",
+              "FontAwesomeIcons.bars":               "Icons.menu",
+              "FontAwesomeIcons.ellipsisV":          "Icons.more_vert",
+              "FontAwesomeIcons.ellipsisH":          "Icons.more_horiz",
+              "FontAwesomeIcons.share":              "Icons.share",
+              "FontAwesomeIcons.shareAlt":           "Icons.share",
+              "FontAwesomeIcons.download":           "Icons.download",
+              "FontAwesomeIcons.upload":             "Icons.upload",
+              "FontAwesomeIcons.camera":             "Icons.camera_alt",
+              "FontAwesomeIcons.image":              "Icons.image",
+              "FontAwesomeIcons.images":             "Icons.photo_library",
+              "FontAwesomeIcons.video":              "Icons.videocam",
+              "FontAwesomeIcons.music":              "Icons.music_note",
+              "FontAwesomeIcons.phone":              "Icons.phone",
+              "FontAwesomeIcons.phoneAlt":           "Icons.phone",
+              "FontAwesomeIcons.envelope":           "Icons.email",
+              "FontAwesomeIcons.mapMarker":          "Icons.location_on",
+              "FontAwesomeIcons.mapMarkerAlt":       "Icons.location_on",
+              "FontAwesomeIcons.map":                "Icons.map",
+              "FontAwesomeIcons.lock":               "Icons.lock",
+              "FontAwesomeIcons.lockOpen":           "Icons.lock_open",
+              "FontAwesomeIcons.key":                "Icons.key",
+              "FontAwesomeIcons.eye":                "Icons.visibility",
+              "FontAwesomeIcons.eyeSlash":           "Icons.visibility_off",
+              "FontAwesomeIcons.shoppingCart":       "Icons.shopping_cart",
+              "FontAwesomeIcons.shoppingBag":        "Icons.shopping_bag",
+              "FontAwesomeIcons.tag":                "Icons.label",
+              "FontAwesomeIcons.tags":               "Icons.label",
+              "FontAwesomeIcons.calendar":           "Icons.calendar_today",
+              "FontAwesomeIcons.calendarAlt":        "Icons.calendar_month",
+              "FontAwesomeIcons.clock":              "Icons.access_time",
+              "FontAwesomeIcons.history":            "Icons.history",
+              "FontAwesomeIcons.info":               "Icons.info_outline",
+              "FontAwesomeIcons.infoCircle":         "Icons.info",
+              "FontAwesomeIcons.questionCircle":     "Icons.help_outline",
+              "FontAwesomeIcons.question":           "Icons.help",
+              "FontAwesomeIcons.spinner":            "Icons.refresh",
+              "FontAwesomeIcons.sync":               "Icons.sync",
+              "FontAwesomeIcons.syncAlt":            "Icons.sync",
+              "FontAwesomeIcons.redo":               "Icons.redo",
+              "FontAwesomeIcons.undo":               "Icons.undo",
+              "FontAwesomeIcons.save":               "Icons.save",
+              "FontAwesomeIcons.copy":               "Icons.copy_all",
+              "FontAwesomeIcons.cut":                "Icons.content_cut",
+              "FontAwesomeIcons.paste":              "Icons.content_paste",
+              "FontAwesomeIcons.print":              "Icons.print",
+              "FontAwesomeIcons.wifi":               "Icons.wifi",
+              "FontAwesomeIcons.bluetooth":          "Icons.bluetooth",
+              "FontAwesomeIcons.battery":            "Icons.battery_full",
+              "FontAwesomeIcons.signal":             "Icons.signal_cellular_alt",
+              "FontAwesomeIcons.globe":              "Icons.language",
+              "FontAwesomeIcons.link":               "Icons.link",
+              "FontAwesomeIcons.unlink":             "Icons.link_off",
+              "FontAwesomeIcons.externalLinkAlt":    "Icons.open_in_new",
+              "FontAwesomeIcons.list":               "Icons.list",
+              "FontAwesomeIcons.listUl":             "Icons.format_list_bulleted",
+              "FontAwesomeIcons.listOl":             "Icons.format_list_numbered",
+              "FontAwesomeIcons.table":              "Icons.table_chart",
+              "FontAwesomeIcons.chartBar":           "Icons.bar_chart",
+              "FontAwesomeIcons.chartLine":          "Icons.show_chart",
+              "FontAwesomeIcons.chartPie":           "Icons.pie_chart",
+              "FontAwesomeIcons.filter":             "Icons.filter_list",
+              "FontAwesomeIcons.sort":               "Icons.sort",
+              "FontAwesomeIcons.sortUp":             "Icons.arrow_drop_up",
+              "FontAwesomeIcons.sortDown":           "Icons.arrow_drop_down",
+              "FontAwesomeIcons.expand":             "Icons.fullscreen",
+              "FontAwesomeIcons.compress":           "Icons.fullscreen_exit",
+              "FontAwesomeIcons.trophy":             "Icons.emoji_events",
+              "FontAwesomeIcons.medal":              "Icons.military_tech",
+              "FontAwesomeIcons.crown":              "Icons.workspace_premium",
+              "FontAwesomeIcons.fire":               "Icons.local_fire_department",
+              "FontAwesomeIcons.bolt":               "Icons.bolt",
+              "FontAwesomeIcons.sun":                "Icons.wb_sunny",
+              "FontAwesomeIcons.moon":               "Icons.dark_mode",
+              "FontAwesomeIcons.cloud":              "Icons.cloud",
+              "FontAwesomeIcons.cloudDownloadAlt":   "Icons.cloud_download",
+              "FontAwesomeIcons.cloudUploadAlt":     "Icons.cloud_upload",
+              "FontAwesomeIcons.store":              "Icons.store",
+              "FontAwesomeIcons.warehouse":          "Icons.warehouse",
+              "FontAwesomeIcons.box":                "Icons.inventory_2",
+              "FontAwesomeIcons.boxes":              "Icons.inventory",
+              "FontAwesomeIcons.truck":              "Icons.local_shipping",
+              "FontAwesomeIcons.car":                "Icons.directions_car",
+              "FontAwesomeIcons.bicycle":            "Icons.directions_bike",
+              "FontAwesomeIcons.walking":            "Icons.directions_walk",
+              "FontAwesomeIcons.running":            "Icons.directions_run",
+              "FontAwesomeIcons.swimmer":            "Icons.pool",
+              "FontAwesomeIcons.dumbbell":           "Icons.fitness_center",
+              "FontAwesomeIcons.football":           "Icons.sports_football",
+              "FontAwesomeIcons.basketball":         "Icons.sports_basketball",
+              "FontAwesomeIcons.futbol":             "Icons.sports_soccer",
+              "FontAwesomeIcons.moneyBill":          "Icons.payments",
+              "FontAwesomeIcons.moneyBillAlt":       "Icons.payments",
+              "FontAwesomeIcons.creditCard":         "Icons.credit_card",
+              "FontAwesomeIcons.wallet":             "Icons.account_balance_wallet",
+              "FontAwesomeIcons.university":         "Icons.account_balance",
+              "FontAwesomeIcons.landmark":           "Icons.account_balance",
+              "FontAwesomeIcons.building":           "Icons.business",
+              "FontAwesomeIcons.city":               "Icons.location_city",
+              "FontAwesomeIcons.hospital":           "Icons.local_hospital",
+              "FontAwesomeIcons.heartbeat":          "Icons.monitor_heart",
+              "FontAwesomeIcons.pills":              "Icons.medication",
+              "FontAwesomeIcons.userMd":             "Icons.medical_services",
+              "FontAwesomeIcons.comments":           "Icons.forum",
+              "FontAwesomeIcons.comment":            "Icons.chat_bubble_outline",
+              "FontAwesomeIcons.commentAlt":         "Icons.chat",
+              "FontAwesomeIcons.paperPlane":         "Icons.send",
+              "FontAwesomeIcons.inbox":              "Icons.inbox",
+              "FontAwesomeIcons.file":               "Icons.insert_drive_file",
+              "FontAwesomeIcons.fileAlt":            "Icons.description",
+              "FontAwesomeIcons.filePdf":            "Icons.picture_as_pdf",
+              "FontAwesomeIcons.folder":             "Icons.folder",
+              "FontAwesomeIcons.folderOpen":         "Icons.folder_open",
+              "FontAwesomeIcons.database":           "Icons.storage",
+              "FontAwesomeIcons.server":             "Icons.dns",
+              "FontAwesomeIcons.microphone":         "Icons.mic",
+              "FontAwesomeIcons.microphoneSlash":    "Icons.mic_off",
+              "FontAwesomeIcons.volumeUp":           "Icons.volume_up",
+              "FontAwesomeIcons.volumeDown":         "Icons.volume_down",
+              "FontAwesomeIcons.volumeMute":         "Icons.volume_mute",
+              "FontAwesomeIcons.volumeOff":          "Icons.volume_off",
+              "FontAwesomeIcons.play":               "Icons.play_arrow",
+              "FontAwesomeIcons.pause":              "Icons.pause",
+              "FontAwesomeIcons.stop":               "Icons.stop",
+              "FontAwesomeIcons.forward":            "Icons.fast_forward",
+              "FontAwesomeIcons.backward":           "Icons.fast_rewind",
+              "FontAwesomeIcons.stepForward":        "Icons.skip_next",
+              "FontAwesomeIcons.stepBackward":       "Icons.skip_previous",
+              "FontAwesomeIcons.random":             "Icons.shuffle",
+              "FontAwesomeIcons.repeat":             "Icons.repeat",
+              "FontAwesomeIcons.android":            "Icons.android",
+              "FontAwesomeIcons.apple":              "Icons.apple",
+              "FontAwesomeIcons.windows":            "Icons.window",
+              "FontAwesomeIcons.github":             "Icons.code",
+              "FontAwesomeIcons.google":             "Icons.search",
+              "FontAwesomeIcons.facebook":           "Icons.facebook",
+              "FontAwesomeIcons.twitter":            "Icons.alternate_email",
+              "FontAwesomeIcons.instagram":          "Icons.camera_alt",
+              "FontAwesomeIcons.youtube":            "Icons.play_circle_outline",
+              "FontAwesomeIcons.linkedin":           "Icons.business_center",
+              "FontAwesomeIcons.whatsapp":           "Icons.chat",
+              "FontAwesomeIcons.telegram":           "Icons.send",
+          }
+
+          dart_files = glob.glob('lib/**/*.dart', recursive=True)
+          dart_files += glob.glob('lib/*.dart')
+          dart_files = list(set(dart_files))
+
+          total_fixed = 0
+          for filepath in dart_files:
+              try:
+                  with open(filepath, 'r', encoding='utf-8') as f:
+                      content = f.read()
+
+                  original = content
+
+                  # Hapus import font_awesome_flutter
+                  content = re.sub(r"^import\s+'package:font_awesome_flutter/[^']*';\s*\n?", '', content, flags=re.MULTILINE)
+                  content = re.sub(r'^import\s+"package:font_awesome_flutter/[^"]*";\s*\n?', '', content, flags=re.MULTILINE)
+
+                  # Hapus import package lain
+                  for pkg in ['dio', 'http', 'pretty_dio_logger', 'flutter_lints', 'flutter_native_splash', 'flutter_launcher_icons', 'icon_data']:
+                      content = re.sub(rf"^import\s+'package:{pkg}/[^']*';\s*\n?", '', content, flags=re.MULTILINE)
+                      content = re.sub(rf'^import\s+"package:{pkg}/[^"]*";\s*\n?', '', content, flags=re.MULTILINE)
+
+                  # Ganti icon dari map
+                  for fa_icon, material_icon in fa_icon_map.items():
+                      content = content.replace(fa_icon, material_icon)
+
+                  # Ganti sisa FontAwesomeIcons
+                  content = re.sub(r'FontAwesomeIcons\.(\w+)', r'Icons.widgets', content)
+
+                  # Ganti FaIcon -> Icon
+                  content = re.sub(r'\bFaIcon\s*\(', 'Icon(', content)
+
+                  # Fix untuk info_outlineCircle
+                  content = content.replace('Icons.info_outlineCircle', 'Icons.info_outline')
+
+                  if content != original:
+                      with open(filepath, 'w', encoding='utf-8') as f:
+                          f.write(content)
+                      total_fixed += 1
+                      print(f"Fixed: {filepath}")
+
+              except Exception as e:
+                  print(f"Skip {filepath}: {e}")
+
+          print(f"\nTotal files fixed: {total_fixed}")
           EOF
+          echo "Dart code fix completed"
 
-      - name: Fix connection_rotator.dart (Dio Style)
+      - name: Fix Connection Rotator HttpClient Issue
         run: |
           python3 << 'EOF'
           import os, re
 
           filepath = "lib/services/connection_rotator.dart"
-          if os.path.exists(filepath):
+          if not os.path.exists(filepath):
+              print("File connection_rotator.dart tidak ditemukan, skip")
+          else:
               with open(filepath, 'r', encoding='utf-8') as f:
                   content = f.read()
-              
-              # Paksa pakai Dio atau HttpClient yang benar
-              content = re.sub(r'Future<Client>', 'Future<http.Client>', content, flags=re.IGNORECASE)
-              content = re.sub(r'\bIOClient\b', 'HttpClient', content)
-              content = re.sub(r'return IOClient', 'return HttpClient', content)
 
+              original = content
+
+              # Pastikan import dart:io ada
               if "import 'dart:io';" not in content:
                   content = "import 'dart:io';\n" + content
 
-              # Hapus import http yang konflik
-              content = re.sub(r"^import\s+['\"]package:http/[^'\"]*['\"];\s*\n?", '', content, flags=re.MULTILINE)
+              # Hapus import IOClient yang tidak perlu
+              content = re.sub(r"^import\s+'package:http/io_client\.dart'[^\n]*\n?", '', content, flags=re.MULTILINE)
+              content = re.sub(r'^import\s+"package:http/io_client\.dart"[^\n]*\n?', '', content, flags=re.MULTILINE)
 
-              with open(filepath, 'w', encoding='utf-8') as f:
-                  f.write(content)
-              print("✅ connection_rotator.dart fixed")
+              # Kembalikan IOClient -> HttpClient (dart:io) jika sudah terlanjur diganti
+              content = re.sub(r'\bIOClient\b', 'HttpClient', content)
+
+              # Perbaiki return yang salah: return IOClient(httpClient) -> return httpClient
+              content = re.sub(r'return\s+HttpClient\(httpClient\);', 'return httpClient;', content)
+
+              # Perbaiki tipe return yang salah
+              content = re.sub(r'Future<http\.Client>', 'Future<HttpClient>', content)
+              content = re.sub(r'Future<Client>', 'Future<HttpClient>', content)
+
+              # Pastikan badCertificateCallback tetap ada dan benar
+              content = re.sub(
+                  r'(HttpClient\s+httpClient\s*=\s*HttpClient\(\);)',
+                  r'\1\n    httpClient.badCertificateCallback = (cert, host, port) => true;',
+                  content
+              )
+              # Hindari duplikasi badCertificateCallback
+              seen = []
+              lines = content.split('\n')
+              new_lines = []
+              for line in lines:
+                  stripped = line.strip()
+                  if 'badCertificateCallback' in stripped:
+                      if stripped not in seen:
+                          seen.append(stripped)
+                          new_lines.append(line)
+                  else:
+                      new_lines.append(line)
+              content = '\n'.join(new_lines)
+
+              if content != original:
+                  with open(filepath, 'w', encoding='utf-8') as f:
+                      f.write(content)
+                  print("✅ connection_rotator.dart berhasil diperbaiki")
+              else:
+                  print("Tidak ada perubahan pada connection_rotator.dart")
           EOF
 
-      - name: Update SDK & Clean
+      - name: Update Android SDK Version in build.gradle
         run: |
           SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-          sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" android/app/build.gradle 2>/dev/null || true
-          sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" android/app/build.gradle 2>/dev/null || true
-          flutter clean
+
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion $SDK_VERSION/" android/app/build.gradle
+            sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion $SDK_VERSION/" android/app/build.gradle
+            sed -i "s/minSdkVersion [0-9]*/minSdkVersion 21/" android/app/build.gradle
+            echo "build.gradle updated"
+          fi
+
+          if [ -f "android/app/build.gradle.kts" ]; then
+            sed -i "s/compileSdk = [0-9]*/compileSdk = $SDK_VERSION/" android/app/build.gradle.kts
+            sed -i "s/targetSdk = [0-9]*/targetSdk = $SDK_VERSION/" android/app/build.gradle.kts
+            echo "build.gradle.kts updated"
+          fi
+
+          mkdir -p android
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+          echo "local.properties created"
+
+      - name: Clean Flutter Project
+        run: |
+          flutter clean || true
+          rm -rf .dart_tool .gradle build pubspec.lock 2>/dev/null || true
+          echo "Clean completed"
+
+      - name: Get Flutter Dependencies
+        run: |
           flutter pub get
+          if [ $? -ne 0 ]; then
+            echo "Pub get failed, trying with --no-example..."
+            flutter pub get --no-example
+          fi
+          echo "Dependencies resolved"
+
+      - name: Auto Fix Dart Code
+        run: |
+          dart fix --apply || true
+          echo "Dart fix completed"
 
       - name: Build APK
+        id: build
         run: |
-          flutter build apk --release --no-tree-shake-icons
+          if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
+            echo "Building RELEASE APK..."
+            flutter build apk --release --no-tree-shake-icons
+            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          else
+            echo "Building DEBUG APK..."
+            flutter build apk --debug --no-tree-shake-icons
+            APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
+          fi
 
-      - name: Upload APK
+          if [ ! -f "$APK_PATH" ]; then
+            if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
+              APK_PATH="build/app/outputs/apk/release/app-release.apk"
+            elif [ -f "build/app/outputs/apk/debug/app-debug.apk" ]; then
+              APK_PATH="build/app/outputs/apk/debug/app-debug.apk"
+            else
+              echo "ERROR: APK not found!"
+              find . -name "*.apk" 2>/dev/null
+              exit 1
+            fi
+          fi
+
+          echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
+          APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
+          echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
+          echo "✅ APK built successfully! Size: $APK_SIZE"
+          ls -lh "$APK_PATH"
+
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: build/app/outputs/flutter-apk/app-release.apk                                                        
+          name: app-${{ github.event.inputs.build_mode }}-sdk${{ github.event.inputs.sdk_version }}
+          path: ${{ steps.build.outputs.APK_PATH }}
+          retention-days: 7
+
+      - name: Upload Debug Logs (if failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs
+          path: |
+            pubspec.yaml
+            android/app/build.gradle
+            build/
+            .dart_tool/
+          retention-days: 3
+
+      - name: Build Summary
+        run: |
+          echo "=========================================="
+          echo "✅ BUILD SUMMARY ✅"
+          echo "=========================================="
+          echo "Job ID: ${{ github.event.inputs.job_id }}"
+          echo "Project Name: $(grep '^name:' pubspec.yaml | cut -d' ' -f2)"
+          echo "SDK Version: ${{ github.event.inputs.sdk_version }}"
+          echo "Build Mode: ${{ github.event.inputs.build_mode }}"
+          echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
+          echo "Status: SUCCESS"
+          echo "=========================================="              
