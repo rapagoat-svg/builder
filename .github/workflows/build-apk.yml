@@ -400,110 +400,17 @@ jobs:
           echo "Icon fix completed"
 
       # ============================================================
-      # FIX: Gunakan cat heredoc dengan single-quote untuk mencegah
-      # Python menginterpretasi ${...} sebagai variable interpolasi.
-      # Baris findProxy menggunakan string concatenation, bukan
-      # Dart string interpolation, untuk menghindari konflik escaping.
+      # FINAL FIX: Tulis connection_rotator.dart pakai base64
+      # Cara ini 100% aman - tidak ada masalah escaping sama sekali
+      # karena file dikirim sebagai base64 lalu di-decode
       # ============================================================
-      - name: Force Overwrite connection_rotator.dart
+      - name: Force Overwrite connection_rotator.dart (base64)
         run: |
           mkdir -p lib/services
-
-          cat > lib/services/connection_rotator.dart << 'DARTEOF'
-          import 'dart:io';
-          import 'dart:math';
-          import 'package:http/http.dart' as http;
-          import 'package:http/io_client.dart';
-
-          class ConnectionRotator {
-            final Random _rand = Random();
-            List<String> proxyList = [];
-            List<String> realIpList = [];
-
-            bool useProxy = false;
-            bool useIpRotation = false;
-
-            ConnectionRotator() {
-              proxyList = [
-                "http://52.233.143.240:443",
-                "http://52.157.156.231:443",
-                "http://45.142.18.246:443",
-                "http://45.153.231.229:8080",
-                "http://176.61.151.123:80",
-                "http://40.115.38.83:443",
-                "http://149.210.158.107:5001",
-                "http://5.255.97.220:443",
-              ];
-
-              realIpList = List.generate(
-                5000,
-                (i) =>
-                    "${_rand.nextInt(255)}.${_rand.nextInt(255)}.${_rand.nextInt(255)}.${_rand.nextInt(255)}",
-              );
-            }
-
-            void addProxy(String proxy) {
-              if (proxy.trim().isNotEmpty && !proxyList.contains(proxy)) {
-                proxyList.add(proxy);
-              }
-            }
-
-            void removeProxy(int index) {
-              if (index >= 0 && index < proxyList.length) {
-                proxyList.removeAt(index);
-              }
-            }
-
-            http.Client _buildPlainClient() {
-              final httpClient = HttpClient()
-                ..badCertificateCallback = (cert, host, port) => true;
-              return IOClient(httpClient);
-            }
-
-            Future<http.Client> getRotatedClient() async {
-              if (useProxy && proxyList.isNotEmpty) {
-                final proxy = proxyList[_rand.nextInt(proxyList.length)];
-                try {
-                  final proxyUri = Uri.parse(proxy);
-                  final httpClient = HttpClient()
-                    // FIX: Gunakan string concatenation, bukan interpolasi,
-                    // agar tidak bentrok dengan escaping Python/YAML
-                    ..findProxy = (uri) => "PROXY " + proxyUri.host + ":" + proxyUri.port.toString()
-                    ..badCertificateCallback = (cert, host, port) => true;
-                  return IOClient(httpClient);
-                } catch (e) {
-                  return _buildPlainClient();
-                }
-              }
-              return _buildPlainClient();
-            }
-
-            Map<String, String> getSpoofedHeaders() {
-              if (!useIpRotation) return {};
-              return {
-                "X-Forwarded-For": realIpList[_rand.nextInt(realIpList.length)],
-                "X-Real-IP": realIpList[_rand.nextInt(realIpList.length)],
-                "Client-IP": realIpList[_rand.nextInt(realIpList.length)],
-                "True-Client-IP": realIpList[_rand.nextInt(realIpList.length)],
-                "CF-Connecting-IP": realIpList[_rand.nextInt(realIpList.length)],
-                "X-Originating-IP": realIpList[_rand.nextInt(realIpList.length)],
-                "X-Remote-IP": realIpList[_rand.nextInt(realIpList.length)],
-                "X-Remote-Addr": realIpList[_rand.nextInt(realIpList.length)],
-              };
-            }
-
-            String getCurrentProxyInfo() {
-              if (!useProxy || proxyList.isEmpty) return "Proxy OFF";
-              return "Proxy ACTIVE (" + proxyList.length.toString() + " proxies)";
-            }
-
-            int getProxyCount() => proxyList.length;
-          }
-          DARTEOF
-
-          echo "SUCCESS: connection_rotator.dart ditulis ulang"
-          echo "--- ISI FILE ---"
+          echo "aW1wb3J0ICdkYXJ0OmlvJzsKaW1wb3J0ICdkYXJ0Om1hdGgnOwppbXBvcnQgJ3BhY2thZ2U6aHR0cC9odHRwLmRhcnQnIGFzIGh0dHA7CmltcG9ydCAncGFja2FnZTpodHRwL2lvX2NsaWVudC5kYXJ0JzsKCmNsYXNzIENvbm5lY3Rpb25Sb3RhdG9yIHsKICBmaW5hbCBSYW5kb20gX3JhbmQgPSBSYW5kb20oKTsKICBMaXN0PFN0cmluZz4gcHJveHlMaXN0ID0gW107CiAgTGlzdDxTdHJpbmc+IHJlYWxJcExpc3QgPSBbXTsKCiAgYm9vbCB1c2VQcm94eSA9IGZhbHNlOwogIGJvb2wgdXNlSXBSb3RhdGlvbiA9IGZhbHNlOwoKICBDb25uZWN0aW9uUm90YXRvcigpIHsKICAgIHByb3h5TGlzdCA9IFsKICAgICAgImh0dHA6Ly81Mi4yMzMuMTQzLjI0MDo0NDMiLAogICAgICAiaHR0cDovLzUyLjE1Ny4xNTYuMjMxOjQ0MyIsCiAgICAgICJodHRwOi8vNDUuMTQyLjE4LjI0Njo0NDMiLAogICAgICAiaHR0cDovLzQ1LjE1My4yMzEuMjI5OjgwODAiLAogICAgICAiaHR0cDovLzE3Ni42MS4xNTEuMTIzOjgwIiwKICAgICAgImh0dHA6Ly80MC4xMTUuMzguODM6NDQzIiwKICAgICAgImh0dHA6Ly8xNDkuMjEwLjE1OC4xMDc6NTAwMSIsCiAgICAgICJodHRwOi8vNS4yNTUuOTcuMjIwOjQ0MyIsCiAgICBdOwoKICAgIHJlYWxJcExpc3QgPSBMaXN0LmdlbmVyYXRlKDUwMDAsIChpKSA9PgogICAgICAiJHtfcmFuZC5uZXh0SW50KDI1NSl9LiR7X3JhbmQubmV4dEludCgyNTUpfS4ke19yYW5kLm5leHRJbnQoMjU1KX0uJHtfcmFuZC5uZXh0SW50KDI1NSl9IgogICAgKTsKICB9CgogIHZvaWQgYWRkUHJveHkoU3RyaW5nIHByb3h5KSB7CiAgICBpZiAocHJveHkudHJpbSgpLmlzTm90RW1wdHkgJiYgIXByb3h5TGlzdC5jb250YWlucyhwcm94eSkpIHsKICAgICAgcHJveHlMaXN0LmFkZChwcm94eSk7CiAgICB9CiAgfQoKICB2b2lkIHJlbW92ZVByb3h5KGludCBpbmRleCkgewogICAgaWYgKGluZGV4ID49IDAgJiYgaW5kZXggPCBwcm94eUxpc3QubGVuZ3RoKSB7CiAgICAgIHByb3h5TGlzdC5yZW1vdmVBdChpbmRleCk7CiAgICB9CiAgfQoKICBGdXR1cmU8aHR0cC5DbGllbnQ+IGdldFJvdGF0ZWRDbGllbnQoKSBhc3luYyB7CiAgICBpZiAodXNlUHJveHkgJiYgcHJveHlMaXN0LmlzTm90RW1wdHkpIHsKICAgICAgZmluYWwgcHJveHkgPSBwcm94eUxpc3RbX3JhbmQubmV4dEludChwcm94eUxpc3QubGVuZ3RoKV07CiAgICAgIHRyeSB7CiAgICAgICAgZmluYWwgcHJveHlVcmkgPSBVcmkucGFyc2UocHJveHkpOwogICAgICAgIGZpbmFsIGh0dHBDbGllbnQgPSBIdHRwQ2xpZW50KCk7CiAgICAgICAgaHR0cENsaWVudC5maW5kUHJveHkgPSAodXJpKSA9PiAiUFJPWFkgJHtwcm94eVVyaS5ob3N0fToke3Byb3h5VXJpLnBvcnR9IjsKICAgICAgICBodHRwQ2xpZW50LmJhZENlcnRpZmljYXRlQ2FsbGJhY2sgPSAoY2VydCwgaG9zdCwgcG9ydCkgPT4gdHJ1ZTsKICAgICAgICByZXR1cm4gSU9DbGllbnQoaHR0cENsaWVudCk7CiAgICAgIH0gY2F0Y2ggKGUpIHsKICAgICAgICByZXR1cm4gaHR0cC5DbGllbnQoKTsKICAgICAgfQogICAgfQogICAgcmV0dXJuIGh0dHAuQ2xpZW50KCk7CiAgfQoKICBNYXA8U3RyaW5nLCBTdHJpbmc+IGdldFNwb29mZWRIZWFkZXJzKCkgewogICAgaWYgKCF1c2VJcFJvdGF0aW9uKSByZXR1cm4ge307CiAgICByZXR1cm4gewogICAgICAiWC1Gb3J3YXJkZWQtRm9yIjogcmVhbElwTGlzdFtfcmFuZC5uZXh0SW50KHJlYWxJcExpc3QubGVuZ3RoKV0sCiAgICAgICJYLVJlYWwtSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIkNsaWVudC1JUCI6IHJlYWxJcExpc3RbX3JhbmQubmV4dEludChyZWFsSXBMaXN0Lmxlbmd0aCldLAogICAgICAiVHJ1ZS1DbGllbnQtSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIkNGLUNvbm5lY3RpbmctSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIlgtT3JpZ2luYXRpbmctSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIlgtUmVtb3RlLUlQIjogcmVhbElwTGlzdFtfcmFuZC5uZXh0SW50KHJlYWxJcExpc3QubGVuZ3RoKV0sCiAgICAgICJYLVJlbW90ZS1BZGRyIjogcmVhbElwTGlzdFtfcmFuZC5uZXh0SW50KHJlYWxJcExpc3QubGVuZ3RoKV0sCiAgICB9OwogIH0KCiAgU3RyaW5nIGdldEN1cnJlbnRQcm94eUluZm8oKSB7CiAgICBpZiAoIXVzZVByb3h5IHx8IHByb3h5TGlzdC5pc0VtcHR5KSByZXR1cm4gIlByb3h5IE9GRiI7CiAgICByZXR1cm4gIlByb3h5IEFDVElWRSAoJHtwcm94eUxpc3QubGVuZ3RofSBwcm94aWVzKSI7CiAgfQoKICBpbnQgZ2V0UHJveHlDb3VudCgpID0+IHByb3h5TGlzdC5sZW5ndGg7Cn0K" | base64 -d > lib/services/connection_rotator.dart
+          echo "=== VERIFY ISI FILE ==="
           cat lib/services/connection_rotator.dart
+          echo "=== DONE ==="
 
       - name: Update Android SDK Version in build.gradle
         run: |
