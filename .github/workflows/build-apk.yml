@@ -407,25 +407,27 @@ jobs:
           cat lib/services/connection_rotator.dart
 
       # ============================================================
-      # FIX: Update compileSdk - Support Kotlin DSL (build.gradle.kts)
-      # Handle: angka langsung, flutter.xxx variabel, semua format
+      # FIX UTAMA: Double-fix compileSdk
+      # Layer 1: Python regex (handle semua format)
+      # Layer 2: sed fallback (force replace, tidak bisa miss)
       # ============================================================
       - name: Fix Android compileSdk Version
         run: |
           SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-          echo "Target SDK: $SDK_VERSION"
+          echo "🎯 Target SDK: $SDK_VERSION"
 
+          echo "=== SEBELUM FIX ==="
+          find android -name "*.gradle*" 2>/dev/null | xargs grep -E "compileSdk|targetSdk|minSdk" 2>/dev/null || true
+
+          # LAYER 1: Python regex
           python3 << PYEOF
-          import re, os, glob
+          import re, glob
 
           sdk = "$SDK_VERSION"
-
-          # Cari semua build.gradle dan build.gradle.kts
-          gradle_files = glob.glob('android/**/build.gradle', recursive=True)
-          gradle_files += glob.glob('android/**/build.gradle.kts', recursive=True)
+          gradle_files = glob.glob('android/**/build.gradle.kts', recursive=True)
+          gradle_files += glob.glob('android/**/build.gradle', recursive=True)
           gradle_files = list(set(gradle_files))
-
-          print(f"Found gradle files: {gradle_files}")
+          print(f"Found: {gradle_files}")
 
           for filepath in gradle_files:
               try:
@@ -433,49 +435,57 @@ jobs:
                       content = f.read()
                   original = content
 
-                  # ✅ Kotlin DSL (.kts) - angka langsung
+                  # Kotlin DSL - angka hardcode
                   content = re.sub(r'compileSdk\s*=\s*\d+', f'compileSdk = {sdk}', content)
                   content = re.sub(r'targetSdk\s*=\s*\d+', f'targetSdk = {sdk}', content)
                   content = re.sub(r'minSdk\s*=\s*\d+', 'minSdk = 21', content)
 
-                  # ✅ Kotlin DSL (.kts) - pakai variabel flutter.xxx
+                  # Kotlin DSL - variabel flutter.xxx
                   content = re.sub(r'compileSdk\s*=\s*flutter\.\w+', f'compileSdk = {sdk}', content)
                   content = re.sub(r'targetSdk\s*=\s*flutter\.\w+', f'targetSdk = {sdk}', content)
                   content = re.sub(r'minSdk\s*=\s*flutter\.\w+', 'minSdk = 21', content)
 
-                  # ✅ Groovy DSL (.gradle) - angka langsung
+                  # Groovy DSL - angka hardcode
                   content = re.sub(r'compileSdkVersion\s+\d+', f'compileSdkVersion {sdk}', content)
                   content = re.sub(r'targetSdkVersion\s+\d+', f'targetSdkVersion {sdk}', content)
                   content = re.sub(r'minSdkVersion\s+\d+', 'minSdkVersion 21', content)
 
-                  # ✅ Groovy DSL (.gradle) - pakai variabel flutter.xxx
+                  # Groovy DSL - variabel flutter.xxx
                   content = re.sub(r'compileSdkVersion\s+flutter\.\w+', f'compileSdkVersion {sdk}', content)
                   content = re.sub(r'targetSdkVersion\s+flutter\.\w+', f'targetSdkVersion {sdk}', content)
                   content = re.sub(r'minSdkVersion\s+flutter\.\w+', 'minSdkVersion 21', content)
 
-                  if content != original:
-                      with open(filepath, 'w') as f:
-                          f.write(content)
-                      print(f"✅ Fixed: {filepath}")
-                  else:
-                      print(f"⚠️  No change needed: {filepath}")
+                  with open(filepath, 'w') as f:
+                      f.write(content)
 
-                  print(f"--- Preview {filepath} ---")
-                  print(content[:800])
+                  status = "✅ Fixed" if content != original else "⚠️  No change"
+                  print(f"{status}: {filepath}")
               except Exception as e:
-                  print(f"❌ Error on {filepath}: {e}")
+                  print(f"❌ Error: {filepath}: {e}")
           PYEOF
+
+          # LAYER 2: sed force replace (tidak bisa gagal)
+          echo "=== LAYER 2: sed force replace ==="
+          find android -name "*.gradle" -o -name "*.gradle.kts" | while read f; do
+            sed -i "s/compileSdk = [0-9]*/compileSdk = ${SDK_VERSION}/g" "$f" 2>/dev/null || true
+            sed -i "s/targetSdk = [0-9]*/targetSdk = ${SDK_VERSION}/g" "$f" 2>/dev/null || true
+            sed -i "s/minSdk = [0-9]*/minSdk = 21/g" "$f" 2>/dev/null || true
+            sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion ${SDK_VERSION}/g" "$f" 2>/dev/null || true
+            sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion ${SDK_VERSION}/g" "$f" 2>/dev/null || true
+            sed -i "s/minSdkVersion [0-9]*/minSdkVersion 21/g" "$f" 2>/dev/null || true
+            sed -i "s/compileSdk = flutter\.[a-zA-Z]*/compileSdk = ${SDK_VERSION}/g" "$f" 2>/dev/null || true
+            sed -i "s/targetSdk = flutter\.[a-zA-Z]*/targetSdk = ${SDK_VERSION}/g" "$f" 2>/dev/null || true
+            sed -i "s/minSdk = flutter\.[a-zA-Z]*/minSdk = 21/g" "$f" 2>/dev/null || true
+            echo "✅ sed done: $f"
+          done
+
+          echo "=== VERIFIKASI FINAL ==="
+          find android -name "*.gradle*" 2>/dev/null | xargs grep -E "compileSdk|targetSdk|minSdk" 2>/dev/null || true
 
           # Buat local.properties
           mkdir -p android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
           echo "✅ local.properties created"
-
-      - name: Verify compileSdk After Fix
-        run: |
-          echo "=== Verifikasi nilai compileSdk ==="
-          find android -name "build.gradle.kts" -o -name "build.gradle" | xargs grep -E "compileSdk|targetSdk|minSdk" 2>/dev/null || true
-          echo "=== Verifikasi selesai ==="
 
       - name: Clean Flutter Project
         run: |
