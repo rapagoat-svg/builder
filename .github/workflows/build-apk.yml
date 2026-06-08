@@ -106,119 +106,119 @@ jobs:
             
             # Update pubspec.yaml dengan SDK ^3.8.1
             cat > pubspec.yaml << 'EOF'
-            name: build_app
-            description: A Flutter project with SDK ^3.8.1
-            publish_to: 'none'
-            version: 1.0.0+1
+name: build_app
+description: A Flutter project with SDK ^3.8.1
+publish_to: 'none'
+version: 1.0.0+1
 
-            environment:
-              sdk: ^3.8.1
+environment:
+  sdk: ^3.8.1
 
-            dependencies:
-              flutter:
-                sdk: flutter
-              cupertino_icons: ^1.0.6
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
 
-            dev_dependencies:
-              flutter_test:
-                sdk: flutter
-              flutter_lints: ^3.0.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
 
-            flutter:
-              uses-material-design: true
-            EOF
+flutter:
+  uses-material-design: true
+EOF
             
             # Buat main.dart custom
             cat > lib/main.dart << 'EOF'
-            import 'package:flutter/material.dart';
-            
-            void main() {
-              runApp(const MyApp());
-            }
-            
-            class MyApp extends StatelessWidget {
-              const MyApp({super.key});
-              
-              @override
-              Widget build(BuildContext context) {
-                return MaterialApp(
-                  title: 'Build App',
-                  theme: ThemeData(
-                    colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
-                    useMaterial3: true,
-                  ),
-                  home: const MyHomePage(),
-                );
-              }
-            }
-            
-            class MyHomePage extends StatelessWidget {
-              const MyHomePage({super.key});
-              
-              @override
-              Widget build(BuildContext context) {
-                return Scaffold(
-                  appBar: AppBar(
-                    title: const Text('Build APK Success'),
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                  body: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(20.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.check_circle,
-                            size: 80,
-                            color: Colors.green,
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'Build Berhasil!',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Build ID: ${{ env.BUILD_ID }}',
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                          Text(
-                            'Platform: Flutter',
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                          Text(
-                            'Type: ${{ env.BUILD_TYPE }}',
-                            style: const TextStyle(fontSize: 16),
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'Built with GitHub Actions',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            'Flutter SDK: ${const String.fromEnvironment('FLUTTER_VERSION')}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }
-            }
-            EOF
+import 'package:flutter/material.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+  
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Build App',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        useMaterial3: true,
+      ),
+      home: const MyHomePage(),
+    );
+  }
+}
+
+class MyHomePage extends StatelessWidget {
+  const MyHomePage({super.key});
+  
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Build APK Success'),
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.check_circle,
+                size: 80,
+                color: Colors.green,
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Build Berhasil!',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Build ID: ${{ env.BUILD_ID }}',
+                style: const TextStyle(fontSize: 16),
+              ),
+              Text(
+                'Platform: Flutter',
+                style: const TextStyle(fontSize: 16),
+              ),
+              Text(
+                'Type: ${{ env.BUILD_TYPE }}',
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Built with GitHub Actions',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Flutter SDK: ${const String.fromEnvironment('FLUTTER_VERSION')}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+EOF
           fi
 
       # ============================================
@@ -405,5 +405,5 @@ jobs:
         if: always()
         run: |
           rm -rf ./flutter_project
-          echo "🧹 Cleanup completed"
-                                                
+          echo "🧹 Cleanup completed"            
+                                    
