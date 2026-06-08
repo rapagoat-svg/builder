@@ -1,537 +1,409 @@
-name: Build APK Flutter
+name: Build APK from Telegram Bot
 
 on:
   workflow_dispatch:
     inputs:
+      platform:
+        description: 'Platform (android_sdk / flutter)'
+        required: true
+        type: choice
+        options:
+          - android_sdk
+          - flutter
+      build_type:
+        description: 'Build Type (debug / release)'
+        required: true
+        type: choice
+        options:
+          - debug
+          - release
+      user_id:
+        description: 'Telegram User ID'
+        required: true
+        type: string
+      chat_id:
+        description: 'Telegram Chat ID'
+        required: true
+        type: string
+      message_id:
+        description: 'Telegram Message ID'
+        required: true
+        type: string
+      build_id:
+        description: 'Build ID'
+        required: true
+        type: string
       zip_url:
-        description: 'URL file ZIP project Flutter'
-        required: true
+        description: 'URL ZIP project (optional)'
+        required: false
         type: string
-      sdk_version:
-        description: 'Android SDK Version'
-        required: true
-        default: '34'
+      repo_url:
+        description: 'GitHub Repository URL (optional)'
+        required: false
         type: string
-      build_mode:
-        description: 'Build Mode (release/debug)'
-        required: true
-        default: 'release'
-        type: string
-      job_id:
-        description: 'Job ID untuk tracking'
-        required: true
-        type: string
+
+# Permission yang dibutuhkan
+permissions:
+  contents: read
+  actions: write
+  checks: write
+
+# Environment variables
+env:
+  BUILD_ID: ${{ github.event.inputs.build_id }}
+  PLATFORM: ${{ github.event.inputs.platform }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type }}
+  CHAT_ID: ${{ github.event.inputs.chat_id }}
+  MESSAGE_ID: ${{ github.event.inputs.message_id }}
+  USER_ID: ${{ github.event.inputs.user_id }}
+  FLUTTER_VERSION: 3.8.1
+  JAVA_VERSION: 17
 
 jobs:
-  build:
+  build-apk:
+    name: Build APK - ${{ github.event.inputs.platform }} (${{ github.event.inputs.build_type }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout Repository
+      # ============================================
+      # STEP 1: Checkout repository
+      # ============================================
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java JDK 17
-        uses: actions/setup-java@v4
+      # ============================================
+      # STEP 2: Update status - 0%
+      # ============================================
+      - name: Update status - 0% (Initializing)
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
+            -d "chat_id=${{ env.CHAT_ID }}" \
+            -d "message_id=${{ env.MESSAGE_ID }}" \
+            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A📅 Tanggal: $(date +'%Y-%m-%d %H:%M:%S')%0A%0A▱▱▱▱▱▱▱▱▱▱ 0%%%0A⚙️ Menginisialisasi build..." \
+            -d "parse_mode=Markdown"
+
+      # ============================================
+      # STEP 3: Download atau Clone Project Flutter
+      # ============================================
+      - name: Get Flutter project source
+        run: |
+          mkdir -p flutter_project
+          cd flutter_project
+          
+          if [ -n "${{ github.event.inputs.zip_url }}" ]; then
+            echo "📥 Downloading project from ZIP URL..."
+            curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
+            unzip -q project.zip
+            rm project.zip
+          elif [ -n "${{ github.event.inputs.repo_url }}" ]; then
+            echo "📥 Cloning repository..."
+            git clone "${{ github.event.inputs.repo_url }}" .
+          else
+            echo "📁 Creating demo Flutter project with SDK ^3.8.1..."
+            # Buat project Flutter demo jika tidak ada URL
+            flutter create --org com.build --project-name build_app .
+            
+            # Update pubspec.yaml dengan SDK ^3.8.1
+            cat > pubspec.yaml << 'EOF'
+            name: build_app
+            description: A Flutter project with SDK ^3.8.1
+            publish_to: 'none'
+            version: 1.0.0+1
+
+            environment:
+              sdk: ^3.8.1
+
+            dependencies:
+              flutter:
+                sdk: flutter
+              cupertino_icons: ^1.0.6
+
+            dev_dependencies:
+              flutter_test:
+                sdk: flutter
+              flutter_lints: ^3.0.0
+
+            flutter:
+              uses-material-design: true
+            EOF
+            
+            # Buat main.dart custom
+            cat > lib/main.dart << 'EOF'
+            import 'package:flutter/material.dart';
+            
+            void main() {
+              runApp(const MyApp());
+            }
+            
+            class MyApp extends StatelessWidget {
+              const MyApp({super.key});
+              
+              @override
+              Widget build(BuildContext context) {
+                return MaterialApp(
+                  title: 'Build App',
+                  theme: ThemeData(
+                    colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+                    useMaterial3: true,
+                  ),
+                  home: const MyHomePage(),
+                );
+              }
+            }
+            
+            class MyHomePage extends StatelessWidget {
+              const MyHomePage({super.key});
+              
+              @override
+              Widget build(BuildContext context) {
+                return Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Build APK Success'),
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  body: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.check_circle,
+                            size: 80,
+                            color: Colors.green,
+                          ),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'Build Berhasil!',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Build ID: ${{ env.BUILD_ID }}',
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                          Text(
+                            'Platform: Flutter',
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                          Text(
+                            'Type: ${{ env.BUILD_TYPE }}',
+                            style: const TextStyle(fontSize: 16),
+                          ),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'Built with GitHub Actions',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Flutter SDK: ${const String.fromEnvironment('FLUTTER_VERSION')}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+            }
+            EOF
+          fi
+
+      # ============================================
+      # STEP 4: Setup Java
+      # ============================================
+      - name: Setup Java
+        uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Setup Flutter SDK (Dart 3.8.1)
+      # ============================================
+      # STEP 5: Setup Android SDK
+      # ============================================
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # ============================================
+      # STEP 6: Setup Flutter SDK 3.8.1 (support ^3.8.1)
+      # ============================================
+      - name: Setup Flutter SDK 3.8.1
         uses: subosito/flutter-action@v2
         with:
-          channel: 'master'
+          flutter-version: '3.8.1'
+          channel: 'stable'
+          cache: true
 
-      - name: Download Project ZIP
+      - name: Verify Flutter version
         run: |
-          echo "Downloading from: ${{ github.event.inputs.zip_url }}"
-          curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
-          if [ ! -f project.zip ]; then
-            echo "Error: Failed to download ZIP file"
-            exit 1
-          fi
-          unzip -q project.zip
-          rm project.zip
-          echo "Extracted successfully"
+          echo "🔍 Verifying Flutter version..."
+          flutter --version
+          echo "✅ Flutter 3.8.1 ready for SDK ^3.8.1"
 
-      - name: Find and Move Flutter Project to Root
-        id: finder
+      - name: Update status - 25% (Installing dependencies)
         run: |
-          PROJ_DIR=$(find . -name "pubspec.yaml" -printf "%h\n" | head -1)
-          if [ -z "$PROJ_DIR" ]; then
-            echo "Error: pubspec.yaml not found!"
-            exit 1
-          fi
-          PROJ_DIR="${PROJ_DIR#./}"
-          echo "Found project at: $PROJ_DIR"
-          if [ "$PROJ_DIR" != "." ] && [ -n "$PROJ_DIR" ]; then
-            echo "Moving contents to root..."
-            mv "$PROJ_DIR"/* ./ 2>/dev/null || true
-            mv "$PROJ_DIR"/.[!.]* ./ 2>/dev/null || true
-            rm -rf "$PROJ_DIR"
-          fi
-          echo "Project moved to root successfully"
-          ls -la
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
+            -d "chat_id=${{ env.CHAT_ID }}" \
+            -d "message_id=${{ env.MESSAGE_ID }}" \
+            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▱▱▱▱▱▱▱ 25%%%0A📦 Menginstall dependencies Flutter..." \
+            -d "parse_mode=Markdown"
 
-      # ============================================================
-      # FIX BARU: Force Fix compileSdk SETELAH project dipindah
-      # Ini harus di sini, sebelum step lain, agar pasti berhasil
-      # ============================================================
-      - name: Force Fix compileSdk in app/build.gradle
+      # ============================================
+      # STEP 7: Flutter Clean & Get Dependencies
+      # ============================================
+      - name: Flutter clean & get dependencies
+        working-directory: ./flutter_project
         run: |
-          SDK_VERSION="${{ github.event.inputs.sdk_version }}"
-          echo "🎯 Target SDK: $SDK_VERSION"
-
-          # Cari file gradle app module
-          APP_GRADLE=$(find android/app -name "build.gradle.kts" -o -name "build.gradle" 2>/dev/null | head -1)
-          if [ -z "$APP_GRADLE" ]; then
-            echo "❌ android/app/build.gradle tidak ditemukan!"
-            find . -name "build.gradle*" 2>/dev/null
-            exit 1
-          fi
-          echo "Target file: $APP_GRADLE"
-          echo "=== SEBELUM FIX ==="
-          cat "$APP_GRADLE"
-
-          # Force replace SEMUA variasi compileSdk (Kotlin DSL & Groovy DSL)
-          sed -i "s/compileSdk = flutter\.[a-zA-Z]*/compileSdk = ${SDK_VERSION}/g" "$APP_GRADLE"
-          sed -i "s/compileSdk = [0-9]*/compileSdk = ${SDK_VERSION}/g" "$APP_GRADLE"
-          sed -i "s/compileSdkVersion flutter\.[a-zA-Z]*/compileSdkVersion ${SDK_VERSION}/g" "$APP_GRADLE"
-          sed -i "s/compileSdkVersion [0-9]*/compileSdkVersion ${SDK_VERSION}/g" "$APP_GRADLE"
-          sed -i "s/targetSdk = flutter\.[a-zA-Z]*/targetSdk = ${SDK_VERSION}/g" "$APP_GRADLE"
-          sed -i "s/targetSdk = [0-9]*/targetSdk = ${SDK_VERSION}/g" "$APP_GRADLE"
-          sed -i "s/targetSdkVersion flutter\.[a-zA-Z]*/targetSdkVersion ${SDK_VERSION}/g" "$APP_GRADLE"
-          sed -i "s/targetSdkVersion [0-9]*/targetSdkVersion ${SDK_VERSION}/g" "$APP_GRADLE"
-          sed -i "s/minSdk = flutter\.[a-zA-Z]*/minSdk = 21/g" "$APP_GRADLE"
-          sed -i "s/minSdk = [0-9]*/minSdk = 21/g" "$APP_GRADLE"
-          sed -i "s/minSdkVersion flutter\.[a-zA-Z]*/minSdkVersion 21/g" "$APP_GRADLE"
-          sed -i "s/minSdkVersion [0-9]*/minSdkVersion 21/g" "$APP_GRADLE"
-
-          echo "=== SETELAH FIX ==="
-          cat "$APP_GRADLE"
-
-          # Verifikasi — pastikan tidak ada nilai lama yang tersisa
-          if grep -E "compileSdk.*(flutter\.|= 3[0-3]$)" "$APP_GRADLE"; then
-            echo "❌ MASIH ADA compileSdk lama atau nilai < 34!"
-            exit 1
-          fi
-          echo "✅ compileSdk berhasil diset ke $SDK_VERSION"
-
-          # Buat local.properties
-          mkdir -p android
-          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
-          echo "✅ local.properties created"
-
-      - name: Fix pubspec.yaml - SDK and Dependencies
-        run: |
-          echo "===== ORIGINAL pubspec.yaml ====="
-          cat pubspec.yaml
-
-          python3 << 'EOF'
-          import re
-
-          with open("pubspec.yaml", "r") as f:
-              content = f.read()
-
-          lines = content.split('\n')
-          in_environment = False
-          new_lines = []
-          for line in lines:
-              if re.match(r'^environment\s*:', line):
-                  in_environment = True
-                  new_lines.append(line)
-                  continue
-              if in_environment and line and not line[0].isspace():
-                  in_environment = False
-              if in_environment and re.match(r'^\s+sdk\s*:', line):
-                  indent = len(line) - len(line.lstrip())
-                  new_lines.append(' ' * indent + 'sdk: ">=3.5.0 <4.0.0"')
-              else:
-                  new_lines.append(line)
-          content = '\n'.join(new_lines)
-
-          bad_deps = [
-              "font_awesome_flutter", "icon_data", "flutter_lints",
-              "flutter_native_splash", "flutter_launcher_icons",
-              "pretty_dio_logger", "dio",
-          ]
-          for dep in bad_deps:
-              content = re.sub(
-                  rf'^[ \t]{{2,4}}{re.escape(dep)}\b[^\n]*(\n[ \t]{{4,}}[^\n]*)*\n?',
-                  '',
-                  content,
-                  flags=re.MULTILINE
-              )
-
-          content = re.sub(r'\n{3,}', '\n\n', content)
-
-          if "  http:" not in content:
-              content = re.sub(
-                  r'(^dependencies:\s*\n)',
-                  r'\1  http: ^1.2.0\n',
-                  content,
-                  flags=re.MULTILINE
-              )
-
-          if "cupertino_icons" not in content:
-              content = re.sub(
-                  r'(^dependencies:\s*\n)',
-                  r'\1  cupertino_icons: ^1.0.6\n',
-                  content,
-                  flags=re.MULTILINE
-              )
-
-          with open("pubspec.yaml", "w") as f:
-              f.write(content)
-
-          print("pubspec.yaml berhasil diperbaiki")
-          EOF
-
-          echo "===== FIXED pubspec.yaml ====="
-          cat pubspec.yaml
-
-      - name: Fix Dart Code - Replace FontAwesome and Removed Package Usage
-        run: |
-          python3 << 'EOF'
-          import os, re, glob
-
-          fa_icon_map = {
-              "FontAwesomeIcons.exclamationTriangle": "Icons.warning_amber_rounded",
-              "FontAwesomeIcons.exclamationCircle":  "Icons.error_outline",
-              "FontAwesomeIcons.exclamation":        "Icons.priority_high",
-              "FontAwesomeIcons.checkCircle":        "Icons.check_circle_outline",
-              "FontAwesomeIcons.checkDouble":        "Icons.done_all",
-              "FontAwesomeIcons.check":              "Icons.check",
-              "FontAwesomeIcons.times":              "Icons.close",
-              "FontAwesomeIcons.timesCircle":        "Icons.cancel",
-              "FontAwesomeIcons.home":               "Icons.home",
-              "FontAwesomeIcons.user":               "Icons.person",
-              "FontAwesomeIcons.users":              "Icons.group",
-              "FontAwesomeIcons.cog":                "Icons.settings",
-              "FontAwesomeIcons.cogs":               "Icons.settings",
-              "FontAwesomeIcons.search":             "Icons.search",
-              "FontAwesomeIcons.bell":               "Icons.notifications",
-              "FontAwesomeIcons.heart":              "Icons.favorite",
-              "FontAwesomeIcons.star":               "Icons.star",
-              "FontAwesomeIcons.starHalf":           "Icons.star_half",
-              "FontAwesomeIcons.trash":              "Icons.delete",
-              "FontAwesomeIcons.trashAlt":           "Icons.delete_outline",
-              "FontAwesomeIcons.edit":               "Icons.edit",
-              "FontAwesomeIcons.pen":                "Icons.edit",
-              "FontAwesomeIcons.pencilAlt":          "Icons.edit",
-              "FontAwesomeIcons.plus":               "Icons.add",
-              "FontAwesomeIcons.plusCircle":         "Icons.add_circle_outline",
-              "FontAwesomeIcons.minus":              "Icons.remove",
-              "FontAwesomeIcons.minusCircle":        "Icons.remove_circle_outline",
-              "FontAwesomeIcons.arrowLeft":          "Icons.arrow_back",
-              "FontAwesomeIcons.arrowRight":         "Icons.arrow_forward",
-              "FontAwesomeIcons.arrowUp":            "Icons.arrow_upward",
-              "FontAwesomeIcons.arrowDown":          "Icons.arrow_downward",
-              "FontAwesomeIcons.chevronLeft":        "Icons.chevron_left",
-              "FontAwesomeIcons.chevronRight":       "Icons.chevron_right",
-              "FontAwesomeIcons.chevronUp":          "Icons.expand_less",
-              "FontAwesomeIcons.chevronDown":        "Icons.expand_more",
-              "FontAwesomeIcons.bars":               "Icons.menu",
-              "FontAwesomeIcons.ellipsisV":          "Icons.more_vert",
-              "FontAwesomeIcons.ellipsisH":          "Icons.more_horiz",
-              "FontAwesomeIcons.share":              "Icons.share",
-              "FontAwesomeIcons.shareAlt":           "Icons.share",
-              "FontAwesomeIcons.download":           "Icons.download",
-              "FontAwesomeIcons.upload":             "Icons.upload",
-              "FontAwesomeIcons.camera":             "Icons.camera_alt",
-              "FontAwesomeIcons.image":              "Icons.image",
-              "FontAwesomeIcons.images":             "Icons.photo_library",
-              "FontAwesomeIcons.video":              "Icons.videocam",
-              "FontAwesomeIcons.music":              "Icons.music_note",
-              "FontAwesomeIcons.phone":              "Icons.phone",
-              "FontAwesomeIcons.phoneAlt":           "Icons.phone",
-              "FontAwesomeIcons.envelope":           "Icons.email",
-              "FontAwesomeIcons.mapMarker":          "Icons.location_on",
-              "FontAwesomeIcons.mapMarkerAlt":       "Icons.location_on",
-              "FontAwesomeIcons.map":                "Icons.map",
-              "FontAwesomeIcons.lock":               "Icons.lock",
-              "FontAwesomeIcons.lockOpen":           "Icons.lock_open",
-              "FontAwesomeIcons.key":                "Icons.key",
-              "FontAwesomeIcons.eye":                "Icons.visibility",
-              "FontAwesomeIcons.eyeSlash":           "Icons.visibility_off",
-              "FontAwesomeIcons.shoppingCart":       "Icons.shopping_cart",
-              "FontAwesomeIcons.shoppingBag":        "Icons.shopping_bag",
-              "FontAwesomeIcons.tag":                "Icons.label",
-              "FontAwesomeIcons.tags":               "Icons.label",
-              "FontAwesomeIcons.calendar":           "Icons.calendar_today",
-              "FontAwesomeIcons.calendarAlt":        "Icons.calendar_month",
-              "FontAwesomeIcons.clock":              "Icons.access_time",
-              "FontAwesomeIcons.history":            "Icons.history",
-              "FontAwesomeIcons.info":               "Icons.info_outline",
-              "FontAwesomeIcons.infoCircle":         "Icons.info",
-              "FontAwesomeIcons.questionCircle":     "Icons.help_outline",
-              "FontAwesomeIcons.question":           "Icons.help",
-              "FontAwesomeIcons.spinner":            "Icons.refresh",
-              "FontAwesomeIcons.sync":               "Icons.sync",
-              "FontAwesomeIcons.syncAlt":            "Icons.sync",
-              "FontAwesomeIcons.redo":               "Icons.redo",
-              "FontAwesomeIcons.undo":               "Icons.undo",
-              "FontAwesomeIcons.save":               "Icons.save",
-              "FontAwesomeIcons.copy":               "Icons.copy_all",
-              "FontAwesomeIcons.cut":                "Icons.content_cut",
-              "FontAwesomeIcons.paste":              "Icons.content_paste",
-              "FontAwesomeIcons.print":              "Icons.print",
-              "FontAwesomeIcons.wifi":               "Icons.wifi",
-              "FontAwesomeIcons.bluetooth":          "Icons.bluetooth",
-              "FontAwesomeIcons.battery":            "Icons.battery_full",
-              "FontAwesomeIcons.signal":             "Icons.signal_cellular_alt",
-              "FontAwesomeIcons.globe":              "Icons.language",
-              "FontAwesomeIcons.link":               "Icons.link",
-              "FontAwesomeIcons.unlink":             "Icons.link_off",
-              "FontAwesomeIcons.externalLinkAlt":    "Icons.open_in_new",
-              "FontAwesomeIcons.list":               "Icons.list",
-              "FontAwesomeIcons.listUl":             "Icons.format_list_bulleted",
-              "FontAwesomeIcons.listOl":             "Icons.format_list_numbered",
-              "FontAwesomeIcons.table":              "Icons.table_chart",
-              "FontAwesomeIcons.chartBar":           "Icons.bar_chart",
-              "FontAwesomeIcons.chartLine":          "Icons.show_chart",
-              "FontAwesomeIcons.chartPie":           "Icons.pie_chart",
-              "FontAwesomeIcons.filter":             "Icons.filter_list",
-              "FontAwesomeIcons.sort":               "Icons.sort",
-              "FontAwesomeIcons.sortUp":             "Icons.arrow_drop_up",
-              "FontAwesomeIcons.sortDown":           "Icons.arrow_drop_down",
-              "FontAwesomeIcons.expand":             "Icons.fullscreen",
-              "FontAwesomeIcons.compress":           "Icons.fullscreen_exit",
-              "FontAwesomeIcons.trophy":             "Icons.emoji_events",
-              "FontAwesomeIcons.medal":              "Icons.military_tech",
-              "FontAwesomeIcons.crown":              "Icons.workspace_premium",
-              "FontAwesomeIcons.fire":               "Icons.local_fire_department",
-              "FontAwesomeIcons.bolt":               "Icons.bolt",
-              "FontAwesomeIcons.sun":                "Icons.wb_sunny",
-              "FontAwesomeIcons.moon":               "Icons.dark_mode",
-              "FontAwesomeIcons.cloud":              "Icons.cloud",
-              "FontAwesomeIcons.cloudDownloadAlt":   "Icons.cloud_download",
-              "FontAwesomeIcons.cloudUploadAlt":     "Icons.cloud_upload",
-              "FontAwesomeIcons.store":              "Icons.store",
-              "FontAwesomeIcons.warehouse":          "Icons.warehouse",
-              "FontAwesomeIcons.box":                "Icons.inventory_2",
-              "FontAwesomeIcons.boxes":              "Icons.inventory",
-              "FontAwesomeIcons.truck":              "Icons.local_shipping",
-              "FontAwesomeIcons.car":                "Icons.directions_car",
-              "FontAwesomeIcons.bicycle":            "Icons.directions_bike",
-              "FontAwesomeIcons.walking":            "Icons.directions_walk",
-              "FontAwesomeIcons.running":            "Icons.directions_run",
-              "FontAwesomeIcons.swimmer":            "Icons.pool",
-              "FontAwesomeIcons.dumbbell":           "Icons.fitness_center",
-              "FontAwesomeIcons.football":           "Icons.sports_football",
-              "FontAwesomeIcons.basketball":         "Icons.sports_basketball",
-              "FontAwesomeIcons.futbol":             "Icons.sports_soccer",
-              "FontAwesomeIcons.moneyBill":          "Icons.payments",
-              "FontAwesomeIcons.moneyBillAlt":       "Icons.payments",
-              "FontAwesomeIcons.creditCard":         "Icons.credit_card",
-              "FontAwesomeIcons.wallet":             "Icons.account_balance_wallet",
-              "FontAwesomeIcons.university":         "Icons.account_balance",
-              "FontAwesomeIcons.landmark":           "Icons.account_balance",
-              "FontAwesomeIcons.building":           "Icons.business",
-              "FontAwesomeIcons.city":               "Icons.location_city",
-              "FontAwesomeIcons.hospital":           "Icons.local_hospital",
-              "FontAwesomeIcons.heartbeat":          "Icons.monitor_heart",
-              "FontAwesomeIcons.pills":              "Icons.medication",
-              "FontAwesomeIcons.userMd":             "Icons.medical_services",
-              "FontAwesomeIcons.comments":           "Icons.forum",
-              "FontAwesomeIcons.comment":            "Icons.chat_bubble_outline",
-              "FontAwesomeIcons.commentAlt":         "Icons.chat",
-              "FontAwesomeIcons.paperPlane":         "Icons.send",
-              "FontAwesomeIcons.inbox":              "Icons.inbox",
-              "FontAwesomeIcons.file":               "Icons.insert_drive_file",
-              "FontAwesomeIcons.fileAlt":            "Icons.description",
-              "FontAwesomeIcons.filePdf":            "Icons.picture_as_pdf",
-              "FontAwesomeIcons.folder":             "Icons.folder",
-              "FontAwesomeIcons.folderOpen":         "Icons.folder_open",
-              "FontAwesomeIcons.database":           "Icons.storage",
-              "FontAwesomeIcons.server":             "Icons.dns",
-              "FontAwesomeIcons.microphone":         "Icons.mic",
-              "FontAwesomeIcons.microphoneSlash":    "Icons.mic_off",
-              "FontAwesomeIcons.volumeUp":           "Icons.volume_up",
-              "FontAwesomeIcons.volumeDown":         "Icons.volume_down",
-              "FontAwesomeIcons.volumeMute":         "Icons.volume_mute",
-              "FontAwesomeIcons.volumeOff":          "Icons.volume_off",
-              "FontAwesomeIcons.play":               "Icons.play_arrow",
-              "FontAwesomeIcons.pause":              "Icons.pause",
-              "FontAwesomeIcons.stop":               "Icons.stop",
-              "FontAwesomeIcons.forward":            "Icons.fast_forward",
-              "FontAwesomeIcons.backward":           "Icons.fast_rewind",
-              "FontAwesomeIcons.stepForward":        "Icons.skip_next",
-              "FontAwesomeIcons.stepBackward":       "Icons.skip_previous",
-              "FontAwesomeIcons.random":             "Icons.shuffle",
-              "FontAwesomeIcons.repeat":             "Icons.repeat",
-              "FontAwesomeIcons.android":            "Icons.android",
-              "FontAwesomeIcons.apple":              "Icons.apple",
-              "FontAwesomeIcons.windows":            "Icons.window",
-              "FontAwesomeIcons.github":             "Icons.code",
-              "FontAwesomeIcons.google":             "Icons.search",
-              "FontAwesomeIcons.facebook":           "Icons.facebook",
-              "FontAwesomeIcons.twitter":            "Icons.alternate_email",
-              "FontAwesomeIcons.instagram":          "Icons.camera_alt",
-              "FontAwesomeIcons.youtube":            "Icons.play_circle_outline",
-              "FontAwesomeIcons.linkedin":           "Icons.business_center",
-              "FontAwesomeIcons.whatsapp":           "Icons.chat",
-              "FontAwesomeIcons.telegram":           "Icons.send",
-          }
-
-          dart_files = glob.glob('lib/**/*.dart', recursive=True)
-          dart_files += glob.glob('lib/*.dart')
-          dart_files = list(set(dart_files))
-
-          total_fixed = 0
-          for filepath in dart_files:
-              try:
-                  with open(filepath, 'r', encoding='utf-8') as f:
-                      content = f.read()
-                  original = content
-                  content = re.sub(r"^import\s+'package:font_awesome_flutter/[^']*';\s*\n?", '', content, flags=re.MULTILINE)
-                  content = re.sub(r'^import\s+"package:font_awesome_flutter/[^"]*";\s*\n?', '', content, flags=re.MULTILINE)
-                  for pkg in ['dio', 'pretty_dio_logger', 'flutter_lints', 'flutter_native_splash', 'flutter_launcher_icons', 'icon_data']:
-                      content = re.sub(rf"^import\s+'package:{pkg}/[^']*';\s*\n?", '', content, flags=re.MULTILINE)
-                      content = re.sub(rf'^import\s+"package:{pkg}/[^"]*";\s*\n?', '', content, flags=re.MULTILINE)
-                  for fa_icon, material_icon in fa_icon_map.items():
-                      content = content.replace(fa_icon, material_icon)
-                  content = re.sub(r'FontAwesomeIcons\.(\w+)', r'Icons.widgets', content)
-                  content = re.sub(r'\bFaIcon\s*\(', 'Icon(', content)
-                  if content != original:
-                      with open(filepath, 'w', encoding='utf-8') as f:
-                          f.write(content)
-                      total_fixed += 1
-                      print(f"Fixed: {filepath}")
-              except Exception as e:
-                  print(f"Skip {filepath}: {e}")
-
-          print(f"\nTotal files fixed: {total_fixed}")
-          EOF
-          echo "Dart code fix completed"
-
-      - name: Fix Invalid Material Icons
-        run: |
-          python3 << 'EOF'
-          import glob, re
-
-          invalid_icon_map = {
-              "Icons.settingss":               "Icons.settings",
-              "Icons.personShield":            "Icons.admin_panel_settings",
-              "Icons.shieldPerson":            "Icons.admin_panel_settings",
-              "Icons.userShield":              "Icons.admin_panel_settings",
-              "Icons.calendar_todayAlt":       "Icons.calendar_month",
-              "Icons.info_outlineCircle":      "Icons.info_outline",
-              "Icons.access_timeAlt":          "Icons.access_time",
-              "Icons.location_onAlt":          "Icons.location_on",
-              "Icons.delete_outlineAlt":       "Icons.delete_outline",
-              "Icons.add_circle_outlineAlt":   "Icons.add_circle_outline",
-              "Icons.check_circle_outlineAlt": "Icons.check_circle_outline",
-          }
-
-          dart_files = glob.glob('lib/**/*.dart', recursive=True)
-          dart_files += glob.glob('lib/*.dart')
-          dart_files = list(set(dart_files))
-
-          total_fixed = 0
-          for filepath in dart_files:
-              try:
-                  with open(filepath, 'r', encoding='utf-8') as f:
-                      content = f.read()
-                  original = content
-                  for bad, good in invalid_icon_map.items():
-                      content = content.replace(bad, good)
-                  if content != original:
-                      with open(filepath, 'w', encoding='utf-8') as f:
-                          f.write(content)
-                      total_fixed += 1
-                      print(f"Fixed icons in: {filepath}")
-              except Exception as e:
-                  print(f"Skip {filepath}: {e}")
-
-          print(f"Total files with icon fixes: {total_fixed}")
-          EOF
-          echo "Icon fix completed"
-
-      - name: Force Overwrite connection_rotator.dart (base64)
-        run: |
-          mkdir -p lib/services
-          echo "aW1wb3J0ICdkYXJ0OmlvJzsKaW1wb3J0ICdkYXJ0Om1hdGgnOwppbXBvcnQgJ3BhY2thZ2U6aHR0cC9odHRwLmRhcnQnIGFzIGh0dHA7CmltcG9ydCAncGFja2FnZTpodHRwL2lvX2NsaWVudC5kYXJ0JzsKCmNsYXNzIENvbm5lY3Rpb25Sb3RhdG9yIHsKICBmaW5hbCBSYW5kb20gX3JhbmQgPSBSYW5kb20oKTsKICBMaXN0PFN0cmluZz4gcHJveHlMaXN0ID0gW107CiAgTGlzdDxTdHJpbmc+IHJlYWxJcExpc3QgPSBbXTsKCiAgYm9vbCB1c2VQcm94eSA9IGZhbHNlOwogIGJvb2wgdXNlSXBSb3RhdGlvbiA9IGZhbHNlOwoKICBDb25uZWN0aW9uUm90YXRvcigpIHsKICAgIHByb3h5TGlzdCA9IFsKICAgICAgImh0dHA6Ly81Mi4yMzMuMTQzLjI0MDo0NDMiLAogICAgICAiaHR0cDovLzUyLjE1Ny4xNTYuMjMxOjQ0MyIsCiAgICAgICJodHRwOi8vNDUuMTQyLjE4LjI0Njo0NDMiLAogICAgICAiaHR0cDovLzQ1LjE1My4yMzEuMjI5OjgwODAiLAogICAgICAiaHR0cDovLzE3Ni42MS4xNTEuMTIzOjgwIiwKICAgICAgImh0dHA6Ly80MC4xMTUuMzguODM6NDQzIiwKICAgICAgImh0dHA6Ly8xNDkuMjEwLjE1OC4xMDc6NTAwMSIsCiAgICAgICJodHRwOi8vNS4yNTUuOTcuMjIwOjQ0MyIsCiAgICBdOwoKICAgIHJlYWxJcExpc3QgPSBMaXN0LmdlbmVyYXRlKDUwMDAsIChpKSA9PgogICAgICAiJHtfcmFuZC5uZXh0SW50KDI1NSl9LiR7X3JhbmQubmV4dEludCgyNTUpfS4ke19yYW5kLm5leHRJbnQoMjU1KX0uJHtfcmFuZC5uZXh0SW50KDI1NSl9IgogICAgKTsKICB9CgogIHZvaWQgYWRkUHJveHkoU3RyaW5nIHByb3h5KSB7CiAgICBpZiAocHJveHkudHJpbSgpLmlzTm90RW1wdHkgJiYgIXByb3h5TGlzdC5jb250YWlucyhwcm94eSkpIHsKICAgICAgcHJveHlMaXN0LmFkZChwcm94eSk7CiAgICB9CiAgfQoKICB2b2lkIHJlbW92ZVByb3h5KGludCBpbmRleCkgewogICAgaWYgKGluZGV4ID49IDAgJiYgaW5kZXggPCBwcm94eUxpc3QubGVuZ3RoKSB7CiAgICAgIHByb3h5TGlzdC5yZW1vdmVBdChpbmRleCk7CiAgICB9CiAgfQoKICBGdXR1cmU8aHR0cC5DbGllbnQ+IGdldFJvdGF0ZWRDbGllbnQoKSBhc3luYyB7CiAgICBpZiAodXNlUHJveHkgJiYgcHJveHlMaXN0LmlzTm90RW1wdHkpIHsKICAgICAgZmluYWwgcHJveHkgPSBwcm94eUxpc3RbX3JhbmQubmV4dEludChwcm94eUxpc3QubGVuZ3RoKV07CiAgICAgIHRyeSB7CiAgICAgICAgZmluYWwgcHJveHlVcmkgPSBVcmkucGFyc2UocHJveHkpOwogICAgICAgIGZpbmFsIGh0dHBDbGllbnQgPSBIdHRwQ2xpZW50KCk7CiAgICAgICAgaHR0cENsaWVudC5maW5kUHJveHkgPSAodXJpKSA9PiAiUFJPWFkgJHtwcm94eVVyaS5ob3N0fToke3Byb3h5VXJpLnBvcnR9IjsKICAgICAgICBodHRwQ2xpZW50LmJhZENlcnRpZmljYXRlQ2FsbGJhY2sgPSAoY2VydCwgaG9zdCwgcG9ydCkgPT4gdHJ1ZTsKICAgICAgICByZXR1cm4gSU9DbGllbnQoaHR0cENsaWVudCk7CiAgICAgIH0gY2F0Y2ggKGUpIHsKICAgICAgICByZXR1cm4gaHR0cC5DbGllbnQoKTsKICAgICAgfQogICAgfQogICAgcmV0dXJuIGh0dHAuQ2xpZW50KCk7CiAgfQoKICBNYXA8U3RyaW5nLCBTdHJpbmc+IGdldFNwb29mZWRIZWFkZXJzKCkgewogICAgaWYgKCF1c2VJcFJvdGF0aW9uKSByZXR1cm4ge307CiAgICByZXR1cm4gewogICAgICAiWC1Gb3J3YXJkZWQtRm9yIjogcmVhbElwTGlzdFtfcmFuZC5uZXh0SW50KHJlYWxJcExpc3QubGVuZ3RoKV0sCiAgICAgICJYLVJlYWwtSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIkNsaWVudC1JUCI6IHJlYWxJcExpc3RbX3JhbmQubmV4dEludChyZWFsSXBMaXN0Lmxlbmd0aCldLAogICAgICAiVHJ1ZS1DbGllbnQtSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIkNGLUNvbm5lY3RpbmctSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIlgtT3JpZ2luYXRpbmctSVAiOiByZWFsSXBMaXN0W19yYW5kLm5leHRJbnQocmVhbElwTGlzdC5sZW5ndGgpXSwKICAgICAgIlgtUmVtb3RlLUlQIjogcmVhbElwTGlzdFtfcmFuZC5uZXh0SW50KHJlYWxJcExpc3QubGVuZ3RoKV0sCiAgICAgICJYLVJlbW90ZS1BZGRyIjogcmVhbElwTGlzdFtfcmFuZC5uZXh0SW50KHJlYWxJcExpc3QubGVuZ3RoKV0sCiAgICB9OwogIH0KCiAgU3RyaW5nIGdldEN1cnJlbnRQcm94eUluZm8oKSB7CiAgICBpZiAoIXVzZVByb3h5IHx8IHByb3h5TGlzdC5pc0VtcHR5KSByZXR1cm4gIlByb3h5IE9GRiI7CiAgICByZXR1cm4gIlByb3h5IEFDVElWRSAoJHtwcm94eUxpc3QubGVuZ3RofSBwcm94aWVzKSI7CiAgfQoKICBpbnQgZ2V0UHJveHlDb3VudCgpID0+IHByb3h5TGlzdC5sZW5ndGg7Cn0K" | base64 -d > lib/services/connection_rotator.dart
-          echo "=== VERIFY ==="
-          cat lib/services/connection_rotator.dart
-
-      - name: Clean Flutter Project
-        run: |
-          flutter clean || true
-          rm -rf .dart_tool .gradle build pubspec.lock 2>/dev/null || true
-          echo "Clean completed"
-
-      - name: Get Flutter Dependencies
-        run: |
+          flutter clean
           flutter pub get
-          if [ $? -ne 0 ]; then
-            echo "Pub get failed, trying with --no-example..."
-            flutter pub get --no-example
-          fi
-          echo "Dependencies resolved"
+          
+          # Cek versi Flutter dan Dart
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📱 Flutter Version:"
+          flutter --version
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      - name: Auto Fix Dart Code
+      # ============================================
+      # STEP 8: Build APK Flutter
+      # ============================================
+      - name: Update status - 50% (Building)
         run: |
-          dart fix --apply || true
-          echo "Dart fix completed"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
+            -d "chat_id=${{ env.CHAT_ID }}" \
+            -d "message_id=${{ env.MESSAGE_ID }}" \
+            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▰▰▱▱▱▱▱ 50%%%0A🔨 Mengkompilasi kode Flutter..." \
+            -d "parse_mode=Markdown"
 
-      - name: Build APK
+      - name: Build Flutter APK
         id: build
+        working-directory: ./flutter_project
         run: |
-          if [ "${{ github.event.inputs.build_mode }}" = "release" ]; then
-            echo "Building RELEASE APK..."
-            flutter build apk --release --no-tree-shake-icons
-            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          if [ "${{ env.BUILD_TYPE }}" = "debug" ]; then
+            flutter build apk --debug
+            echo "APK_PATH=build/app/outputs/flutter-apk/app-debug.apk" >> $GITHUB_ENV
+            echo "APK_NAME=app-debug.apk" >> $GITHUB_ENV
           else
-            echo "Building DEBUG APK..."
-            flutter build apk --debug --no-tree-shake-icons
-            APK_PATH="build/app/outputs/flutter-apk/app-debug.apk"
+            flutter build apk --release
+            echo "APK_PATH=build/app/outputs/flutter-apk/app-release.apk" >> $GITHUB_ENV
+            echo "APK_NAME=app-release.apk" >> $GITHUB_ENV
           fi
-          if [ ! -f "$APK_PATH" ]; then
-            if [ -f "build/app/outputs/apk/release/app-release.apk" ]; then
-              APK_PATH="build/app/outputs/apk/release/app-release.apk"
-            elif [ -f "build/app/outputs/apk/debug/app-debug.apk" ]; then
-              APK_PATH="build/app/outputs/apk/debug/app-debug.apk"
-            else
-              echo "ERROR: APK not found!"
-              find . -name "*.apk" 2>/dev/null
-              exit 1
-            fi
+          
+          # Cek apakah APK berhasil dibuat
+          if [ -f "${{ env.APK_PATH }}" ]; then
+            echo "✅ APK built successfully with Flutter 3.8.1"
+            echo "build_success=true" >> $GITHUB_ENV
+          else
+            echo "❌ APK build failed"
+            echo "build_success=false" >> $GITHUB_ENV
+            exit 1
           fi
-          echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-          APK_SIZE=$(ls -lh "$APK_PATH" | awk '{print $5}')
-          echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
-          echo "APK built successfully! Size: $APK_SIZE"
-          ls -lh "$APK_PATH"
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-${{ github.event.inputs.build_mode }}-sdk${{ github.event.inputs.sdk_version }}
-          path: ${{ steps.build.outputs.APK_PATH }}
-          retention-days: 7
-
-      - name: Upload Debug Logs (if failed)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-logs
-          path: |
-            pubspec.yaml
-            android/app/build.gradle
-            android/app/build.gradle.kts
-            lib/services/connection_rotator.dart
-          retention-days: 3
-
-      - name: Build Summary
+      # ============================================
+      # STEP 9: Update status - 75% (Packaging)
+      # ============================================
+      - name: Update status - 75% (Packaging)
+        if: success()
         run: |
-          echo "=========================================="
-          echo "BUILD SUMMARY"
-          echo "=========================================="
-          echo "Job ID: ${{ github.event.inputs.job_id }}"
-          echo "Project Name: $(grep '^name:' pubspec.yaml | cut -d' ' -f2)"
-          echo "SDK Version: ${{ github.event.inputs.sdk_version }}"
-          echo "Build Mode: ${{ github.event.inputs.build_mode }}"
-          echo "APK Size: ${{ steps.build.outputs.APK_SIZE }}"
-          echo "Status: SUCCESS"
-          echo "=========================================="
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
+            -d "chat_id=${{ env.CHAT_ID }}" \
+            -d "message_id=${{ env.MESSAGE_ID }}" \
+            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▰▰▰▰▱▱▱ 75%%%0A📦 Mem-package APK..." \
+            -d "parse_mode=Markdown"
+
+      # ============================================
+      # STEP 10: Upload APK as Artifact
+      # ============================================
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ env.BUILD_TYPE }}-${{ env.BUILD_ID }}
+          path: ./flutter_project/${{ env.APK_PATH }}
+          retention-days: 7
+          if-no-files-found: error
+
+      # ============================================
+      # STEP 11: Get Artifact URL
+      # ============================================
+      - name: Get artifact download URL
+        id: artifact
+        run: |
+          RUN_ID=${{ github.run_id }}
+          ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
+          echo "artifact_url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
+          
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/suites/${{ github.run_id }}/artifacts/"
+          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+
+      # ============================================
+      # STEP 12: Send APK to Telegram
+      # ============================================
+      - name: Update status - 100% (Sending APK)
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
+            -d "chat_id=${{ env.CHAT_ID }}" \
+            -d "message_id=${{ env.MESSAGE_ID }}" \
+            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▰▰▰▰▰▰▰ 100%%%0A✅ Build selesai! Mengirim APK..." \
+            -d "parse_mode=Markdown"
+
+      - name: Send APK via Telegram
+        if: success()
+        run: |
+          FILE_SIZE=$(stat -c%s "./flutter_project/${{ env.APK_PATH }}" 2>/dev/null || stat -f%z "./flutter_project/${{ env.APK_PATH }}" 2>/dev/null)
+          FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
+          
+          curl -F "chat_id=${{ env.CHAT_ID }}" \
+               -F "document=@./flutter_project/${{ env.APK_PATH }}" \
+               -F "caption=✅ *BUILD BERHASIL!*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A📦 Ukuran: ${FILE_SIZE_MB} MB%0A📅 $(date +'%Y-%m-%d %H:%M:%S')%0A⚡ Flutter SDK: 3.8.1%0A%0A⬇️ Klik file di atas untuk download APK" \
+               "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
+
+      # ============================================
+      # STEP 13: Send success message & delete progress
+      # ============================================
+      - name: Send success notification
+        if: success()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ env.CHAT_ID }}" \
+            -d "text=🎉 *SUKSES!* APK berhasil dikirim dengan Flutter 3.8.1%0A%0A🔗 Lihat detail: ${{ steps.artifact.outputs.artifact_url }}" \
+            -d "parse_mode=Markdown"
+          
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/deleteMessage" \
+            -d "chat_id=${{ env.CHAT_ID }}" \
+            -d "message_id=${{ env.MESSAGE_ID }}"
+
+      # ============================================
+      # STEP 14: ERROR HANDLING
+      # ============================================
+      - name: Send error notification
+        if: failure()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ env.CHAT_ID }}" \
+            -d "text=❌ *BUILD GAGAL!*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A🔗 Cek log: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}%0A%0A🔄 Silakan coba lagi atau hubungi administrator." \
+            -d "parse_mode=Markdown"
+          
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/deleteMessage" \
+            -d "chat_id=${{ env.CHAT_ID }}" \
+            -d "message_id=${{ env.MESSAGE_ID }}"
+
+      # ============================================
+      # STEP 15: Cleanup
+      # ============================================
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -rf ./flutter_project
+          echo "🧹 Cleanup completed"
+                                                
