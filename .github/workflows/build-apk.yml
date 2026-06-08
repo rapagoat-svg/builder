@@ -70,9 +70,15 @@ jobs:
       - name: Update status - 0%
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 Build dimulai%0A%0AMode: ${{ env.BUILD_TYPE }}%0ABuild ID: ${{ env.BUILD_ID }}%0A%0A▱▱▱▱▱▱▱▱▱▱ 0%25%0A⚙️ Menginisialisasi..." \
+            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
+            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
+            --data-urlencode "text=🚀 Build dimulai
+
+          Mode: ${{ env.BUILD_TYPE }}
+          Build ID: ${{ env.BUILD_ID }}
+
+          ▱▱▱▱▱▱▱▱▱▱ 0%
+          ⚙️ Menginisialisasi..." \
             -d "parse_mode=Markdown" || true
 
       - name: Get Flutter project source
@@ -94,70 +100,41 @@ jobs:
             echo "Creating demo Flutter project..."
             flutter create --org com.build --project-name build_app .
 
-            cat > pubspec.yaml << 'EOF'
-name: build_app
-description: A Flutter demo project
-publish_to: 'none'
-version: 1.0.0+1
+            cat << 'EOF' > pubspec.yaml
+          name: build_app
+          description: A Flutter demo project
+          publish_to: 'none'
+          version: 1.0.0+1
+          environment:
+            sdk: ^3.0.0
+          dependencies:
+            flutter:
+              sdk: flutter
+            cupertino_icons: ^1.0.6
+          dev_dependencies:
+            flutter_test:
+              sdk: flutter
+            flutter_lints: ^3.0.0
+          flutter:
+            uses-material-design: true
+          EOF
 
-environment:
-  sdk: ^3.0.0
-
-dependencies:
-  flutter:
-    sdk: flutter
-  cupertino_icons: ^1.0.6
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^3.0.0
-
-flutter:
-  uses-material-design: true
-EOF
-
-            cat > lib/main.dart << 'EOF'
-import 'package:flutter/material.dart';
-
-void main() {
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Build App',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
-        useMaterial3: true,
-      ),
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Build Success'),
-          backgroundColor: Colors.green,
-          foregroundColor: Colors.white,
-        ),
-        body: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.check_circle, size: 80, color: Colors.green),
-              SizedBox(height: 20),
-              Text('Build Berhasil!', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-              SizedBox(height: 10),
-              Text('Built with GitHub Actions', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-EOF
+            cat << 'EOF' > lib/main.dart
+          import 'package:flutter/material.dart';
+          void main() { runApp(const MyApp()); }
+          class MyApp extends StatelessWidget {
+            const MyApp({super.key});
+            @override
+            Widget build(BuildContext context) {
+              return MaterialApp(
+                home: Scaffold(
+                  appBar: AppBar(title: const Text('Build Success')),
+                  body: const Center(child: Text('Build Berhasil!')),
+                ),
+              );
+            }
+          }
+          EOF
           fi
 
       - name: Setup Java
@@ -179,15 +156,19 @@ EOF
       - name: Update status - 25%
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 Build berjalan...%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0A▰▰▰▱▱▱▱▱▱▱ 25%25%0A📦 Install dependencies..." \
+            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
+            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
+            --data-urlencode "text=🚀 Build berjalan...
+
+          Mode: ${{ env.BUILD_TYPE }}
+
+          ▰▰▰▱▱▱▱▱▱▱ 25%
+          📦 Install dependencies..." \
             -d "parse_mode=Markdown" || true
 
       - name: Flutter clean & get dependencies
         working-directory: ./flutter_project
         run: |
-          # Cari root project (ada pubspec.yaml)
           PROJECT_DIR="."
           if [ ! -f "pubspec.yaml" ]; then
             PROJECT_DIR=$(find . -name "pubspec.yaml" -not -path "*/.*" | head -1 | xargs dirname)
@@ -200,15 +181,19 @@ EOF
       - name: Update status - 50%
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 Build berjalan...%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0A▰▰▰▰▰▱▱▱▱▱ 50%25%0A🔨 Kompilasi APK..." \
+            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
+            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
+            --data-urlencode "text=🚀 Build berjalan...
+
+          Mode: ${{ env.BUILD_TYPE }}
+
+          ▰▰▰▰▰▱▱▱▱▱ 50%
+          🔨 Kompilasi APK..." \
             -d "parse_mode=Markdown" || true
 
       - name: Build Flutter APK
         working-directory: ./flutter_project
         run: |
-          # Cari root project
           if [ ! -f "pubspec.yaml" ]; then
             PROJECT_DIR=$(find . -name "pubspec.yaml" -not -path "*/.*" | head -1 | xargs dirname)
             cd "$PROJECT_DIR"
@@ -225,7 +210,6 @@ EOF
           echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
 
           if [ -f "$APK_FILE" ]; then
-            echo "APK_SIZE=$(du -sh $APK_FILE | cut -f1)" >> $GITHUB_ENV
             echo "BUILD_SUCCESS=true" >> $GITHUB_ENV
           else
             echo "BUILD_SUCCESS=false" >> $GITHUB_ENV
@@ -236,9 +220,14 @@ EOF
         if: success()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 Build berjalan...%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0A▰▰▰▰▰▰▰▱▱▱ 75%25%0A📦 Packaging APK..." \
+            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
+            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
+            --data-urlencode "text=🚀 Build berjalan...
+
+          Mode: ${{ env.BUILD_TYPE }}
+
+          ▰▰▰▰▰▰▰▱▱▱ 75%
+          📦 Packaging APK..." \
             -d "parse_mode=Markdown" || true
 
       - name: Upload APK artifact
@@ -253,9 +242,14 @@ EOF
         if: success()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 Build berjalan...%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0A▰▰▰▰▰▰▰▰▰▰ 100%25%0A✅ Selesai! Mengirim APK..." \
+            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
+            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
+            --data-urlencode "text=🚀 Build berjalan...
+
+          Mode: ${{ env.BUILD_TYPE }}
+
+          ▰▰▰▰▰▰▰▰▰▰ 100%
+          ✅ Selesai! Mengirim APK..." \
             -d "parse_mode=Markdown" || true
 
       - name: Send APK via Telegram
@@ -269,38 +263,41 @@ EOF
           curl -s \
             -F "chat_id=${{ env.CHAT_ID }}" \
             -F "document=@$APK_PATH" \
-            -F "caption=✅ BUILD BERHASIL!%0A%0AMode: ${{ env.BUILD_TYPE }}%0ABuild ID: ${{ env.BUILD_ID }}%0AUkuran: ${FILE_SIZE_MB} MB%0AFlutter: ${{ env.FLUTTER_VERSION }}" \
-            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
+            -F "caption=✅ BUILD BERHASIL!
+
+          Mode: ${{ env.BUILD_TYPE }}
+          Build ID: ${{ env.BUILD_ID }}
+          Ukuran: ${FILE_SIZE_MB} MB" \
+            "https://api.telegram.org/brand/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
 
       - name: Send success notification
         if: success()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "text=🎉 Build selesai! APK sudah dikirim.%0A%0ADetail: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            || true
+            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
+            --data-urlencode "text=🎉 Build selesai! APK sudah dikirim.
+
+          Detail: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/deleteMessage" \
             -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}" \
-            || true
+            -d "message_id=${{ env.MESSAGE_ID }}" || true
 
       - name: Send error notification
         if: failure()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "text=❌ BUILD GAGAL!%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0ALog: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            || true
+            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
+            --data-urlencode "text=❌ BUILD GAGAL!
+
+          Mode: ${{ env.BUILD_TYPE }}
+
+          Log: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/deleteMessage" \
             -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}" \
-            || true
+            -d "message_id=${{ env.MESSAGE_ID }}" || true
 
       - name: Cleanup
         if: always()
-        run: rm -rf ./flutter_project || true
-ENDOFFILE
-echo "Done"
-Output                    
+        run: rm -rf ./flutter_project || true                     
