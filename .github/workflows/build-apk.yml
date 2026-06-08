@@ -54,7 +54,8 @@ env:
   CHAT_ID: ${{ github.event.inputs.chat_id }}
   MESSAGE_ID: ${{ github.event.inputs.message_id }}
   USER_ID: ${{ github.event.inputs.user_id }}
-  FLUTTER_VERSION: ^3.8.1
+  # PERBAIKAN 1: Hapus tanda ^ pada versi, atau biarkan kosong untuk mengambil versi terbaru channel tersebut
+  FLUTTER_VERSION: '3.8.1' 
   JAVA_VERSION: 17
 
 jobs:
@@ -149,8 +150,11 @@ jobs:
       - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: 'master'
+          # PERBAIKAN 2: Menggunakan channel 'stable' agar kompatibel dengan sdk ^3.8.1
+          # Jika Anda ingin versi terbaru stable, jangan isi flutter-version.
+          # Jika ingin versi spesifik 3.8.1, uncomment baris di bawah dan pastikan FLUTTER_VERSION valid.
+          channel: 'stable'
+          # flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Update status - 25%
@@ -260,6 +264,7 @@ jobs:
           FILE_SIZE=$(stat -c%s "$APK_PATH" 2>/dev/null || echo "0")
           FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE / 1024 / 1024" | bc)
 
+          # PERBAIKAN 3: Memperbaiki URL API (menghapus 'brand/')
           curl -s \
             -F "chat_id=${{ env.CHAT_ID }}" \
             -F "document=@$APK_PATH" \
@@ -268,7 +273,7 @@ jobs:
           Mode: ${{ env.BUILD_TYPE }}
           Build ID: ${{ env.BUILD_ID }}
           Ukuran: ${FILE_SIZE_MB} MB" \
-            "https://api.telegram.org/brand/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
 
       - name: Send success notification
         if: success()
@@ -300,4 +305,4 @@ jobs:
 
       - name: Cleanup
         if: always()
-        run: rm -rf ./flutter_project || true                     
+        run: rm -rf ./flutter_project || true                    
