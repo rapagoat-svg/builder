@@ -42,13 +42,11 @@ on:
         required: false
         type: string
 
-# Permission yang dibutuhkan
 permissions:
   contents: read
   actions: write
   checks: write
 
-# Environment variables
 env:
   BUILD_ID: ${{ github.event.inputs.build_id }}
   PLATFORM: ${{ github.event.inputs.platform }}
@@ -66,53 +64,44 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # ============================================
-      # STEP 1: Checkout repository
-      # ============================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ============================================
-      # STEP 2: Update status - 0%
-      # ============================================
-      - name: Update status - 0% (Initializing)
+      - name: Update status - 0%
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
             -d "chat_id=${{ env.CHAT_ID }}" \
             -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A📅 Tanggal: $(date +'%Y-%m-%d %H:%M:%S')%0A%0A▱▱▱▱▱▱▱▱▱▱ 0%%%0A⚙️ Menginisialisasi build..." \
-            -d "parse_mode=Markdown"
+            -d "text=🚀 Build dimulai%0A%0AMode: ${{ env.BUILD_TYPE }}%0ABuild ID: ${{ env.BUILD_ID }}%0A%0A▱▱▱▱▱▱▱▱▱▱ 0%25%0A⚙️ Menginisialisasi..." \
+            -d "parse_mode=Markdown" || true
 
-      # ============================================
-      # STEP 3: Download atau Clone Project Flutter
-      # ============================================
       - name: Get Flutter project source
         run: |
           mkdir -p flutter_project
           cd flutter_project
-          
+
           if [ -n "${{ github.event.inputs.zip_url }}" ]; then
-            echo "📥 Downloading project from ZIP URL..."
+            echo "Downloading ZIP..."
             curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
             unzip -q project.zip
             rm project.zip
+
           elif [ -n "${{ github.event.inputs.repo_url }}" ]; then
-            echo "📥 Cloning repository..."
+            echo "Cloning repo..."
             git clone "${{ github.event.inputs.repo_url }}" .
+
           else
-            echo "📁 Creating demo Flutter project with SDK ^3.8.1..."
-            # Buat project Flutter demo jika tidak ada URL
+            echo "Creating demo Flutter project..."
             flutter create --org com.build --project-name build_app .
-            
-            # Update pubspec.yaml dengan SDK ^3.8.1
+
             cat > pubspec.yaml << 'EOF'
 name: build_app
-description: A Flutter project with SDK ^3.8.1
+description: A Flutter demo project
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.8.1
+  sdk: ^3.0.0
 
 dependencies:
   flutter:
@@ -127,8 +116,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 EOF
-            
-            # Buat main.dart custom
+
             cat > lib/main.dart << 'EOF'
 import 'package:flutter/material.dart';
 
@@ -138,7 +126,7 @@ void main() {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-  
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -147,70 +135,21 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
-      home: const MyHomePage(),
-    );
-  }
-}
-
-class MyHomePage extends StatelessWidget {
-  const MyHomePage({super.key});
-  
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Build APK Success'),
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
+      home: Scaffold(
+        appBar: AppBar(
+          title: const Text('Build Success'),
+          backgroundColor: Colors.green,
+          foregroundColor: Colors.white,
+        ),
+        body: const Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.check_circle,
-                size: 80,
-                color: Colors.green,
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Build Berhasil!',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Build ID: ${{ env.BUILD_ID }}',
-                style: const TextStyle(fontSize: 16),
-              ),
-              Text(
-                'Platform: Flutter',
-                style: const TextStyle(fontSize: 16),
-              ),
-              Text(
-                'Type: ${{ env.BUILD_TYPE }}',
-                style: const TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Built with GitHub Actions',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Flutter SDK: ${const String.fromEnvironment('FLUTTER_VERSION')}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
-                ),
-              ),
+              Icon(Icons.check_circle, size: 80, color: Colors.green),
+              SizedBox(height: 20),
+              Text('Build Berhasil!', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              SizedBox(height: 10),
+              Text('Built with GitHub Actions', style: TextStyle(color: Colors.grey)),
             ],
           ),
         ),
@@ -221,190 +160,147 @@ class MyHomePage extends StatelessWidget {
 EOF
           fi
 
-      # ============================================
-      # STEP 4: Setup Java
-      # ============================================
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
 
-      # ============================================
-      # STEP 5: Setup Android SDK
-      # ============================================
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # ============================================
-      # STEP 6: Setup Flutter SDK 3.8.1 (support ^3.8.1)
-      # ============================================
-      - name: Setup Flutter SDK 3.8.1
+      - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.8.1'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
 
-      - name: Verify Flutter version
-        run: |
-          echo "🔍 Verifying Flutter version..."
-          flutter --version
-          echo "✅ Flutter 3.8.1 ready for SDK ^3.8.1"
-
-      - name: Update status - 25% (Installing dependencies)
+      - name: Update status - 25%
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
             -d "chat_id=${{ env.CHAT_ID }}" \
             -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▱▱▱▱▱▱▱ 25%%%0A📦 Menginstall dependencies Flutter..." \
-            -d "parse_mode=Markdown"
+            -d "text=🚀 Build berjalan...%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0A▰▰▰▱▱▱▱▱▱▱ 25%25%0A📦 Install dependencies..." \
+            -d "parse_mode=Markdown" || true
 
-      # ============================================
-      # STEP 7: Flutter Clean & Get Dependencies
-      # ============================================
       - name: Flutter clean & get dependencies
         working-directory: ./flutter_project
         run: |
+          # Cari root project (ada pubspec.yaml)
+          PROJECT_DIR="."
+          if [ ! -f "pubspec.yaml" ]; then
+            PROJECT_DIR=$(find . -name "pubspec.yaml" -not -path "*/.*" | head -1 | xargs dirname)
+            echo "Found pubspec.yaml at: $PROJECT_DIR"
+            cd "$PROJECT_DIR"
+          fi
           flutter clean
           flutter pub get
-          
-          # Cek versi Flutter dan Dart
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📱 Flutter Version:"
-          flutter --version
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      # ============================================
-      # STEP 8: Build APK Flutter
-      # ============================================
-      - name: Update status - 50% (Building)
+      - name: Update status - 50%
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
             -d "chat_id=${{ env.CHAT_ID }}" \
             -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▰▰▱▱▱▱▱ 50%%%0A🔨 Mengkompilasi kode Flutter..." \
-            -d "parse_mode=Markdown"
+            -d "text=🚀 Build berjalan...%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0A▰▰▰▰▰▱▱▱▱▱ 50%25%0A🔨 Kompilasi APK..." \
+            -d "parse_mode=Markdown" || true
 
       - name: Build Flutter APK
-        id: build
         working-directory: ./flutter_project
         run: |
+          # Cari root project
+          if [ ! -f "pubspec.yaml" ]; then
+            PROJECT_DIR=$(find . -name "pubspec.yaml" -not -path "*/.*" | head -1 | xargs dirname)
+            cd "$PROJECT_DIR"
+          fi
+
           if [ "${{ env.BUILD_TYPE }}" = "debug" ]; then
             flutter build apk --debug
-            echo "APK_PATH=build/app/outputs/flutter-apk/app-debug.apk" >> $GITHUB_ENV
-            echo "APK_NAME=app-debug.apk" >> $GITHUB_ENV
+            APK_FILE="build/app/outputs/flutter-apk/app-debug.apk"
           else
             flutter build apk --release
-            echo "APK_PATH=build/app/outputs/flutter-apk/app-release.apk" >> $GITHUB_ENV
-            echo "APK_NAME=app-release.apk" >> $GITHUB_ENV
+            APK_FILE="build/app/outputs/flutter-apk/app-release.apk"
           fi
-          
-          # Cek apakah APK berhasil dibuat
-          if [ -f "${{ env.APK_PATH }}" ]; then
-            echo "✅ APK built successfully with Flutter 3.8.1"
-            echo "build_success=true" >> $GITHUB_ENV
+
+          echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
+
+          if [ -f "$APK_FILE" ]; then
+            echo "APK_SIZE=$(du -sh $APK_FILE | cut -f1)" >> $GITHUB_ENV
+            echo "BUILD_SUCCESS=true" >> $GITHUB_ENV
           else
-            echo "❌ APK build failed"
-            echo "build_success=false" >> $GITHUB_ENV
+            echo "BUILD_SUCCESS=false" >> $GITHUB_ENV
             exit 1
           fi
 
-      # ============================================
-      # STEP 9: Update status - 75% (Packaging)
-      # ============================================
-      - name: Update status - 75% (Packaging)
+      - name: Update status - 75%
         if: success()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
             -d "chat_id=${{ env.CHAT_ID }}" \
             -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▰▰▰▰▱▱▱ 75%%%0A📦 Mem-package APK..." \
-            -d "parse_mode=Markdown"
+            -d "text=🚀 Build berjalan...%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0A▰▰▰▰▰▰▰▱▱▱ 75%25%0A📦 Packaging APK..." \
+            -d "parse_mode=Markdown" || true
 
-      # ============================================
-      # STEP 10: Upload APK as Artifact
-      # ============================================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-${{ env.BUILD_TYPE }}-${{ env.BUILD_ID }}
-          path: ./flutter_project/${{ env.APK_PATH }}
+          path: ./flutter_project/${{ env.APK_FILE }}
           retention-days: 7
           if-no-files-found: error
 
-      # ============================================
-      # STEP 11: Get Artifact URL
-      # ============================================
-      - name: Get artifact download URL
-        id: artifact
-        run: |
-          RUN_ID=${{ github.run_id }}
-          ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
-          echo "artifact_url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
-          
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/suites/${{ github.run_id }}/artifacts/"
-          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
-
-      # ============================================
-      # STEP 12: Send APK to Telegram
-      # ============================================
-      - name: Update status - 100% (Sending APK)
+      - name: Update status - 100%
+        if: success()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
             -d "chat_id=${{ env.CHAT_ID }}" \
             -d "message_id=${{ env.MESSAGE_ID }}" \
-            -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▰▰▰▰▰▰▰ 100%%%0A✅ Build selesai! Mengirim APK..." \
-            -d "parse_mode=Markdown"
+            -d "text=🚀 Build berjalan...%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0A▰▰▰▰▰▰▰▰▰▰ 100%25%0A✅ Selesai! Mengirim APK..." \
+            -d "parse_mode=Markdown" || true
 
       - name: Send APK via Telegram
         if: success()
+        working-directory: ./flutter_project
         run: |
-          FILE_SIZE=$(stat -c%s "./flutter_project/${{ env.APK_PATH }}" 2>/dev/null || stat -f%z "./flutter_project/${{ env.APK_PATH }}" 2>/dev/null)
-          FILE_SIZE_MB=$((FILE_SIZE / 1024 / 1024))
-          
-          curl -F "chat_id=${{ env.CHAT_ID }}" \
-               -F "document=@./flutter_project/${{ env.APK_PATH }}" \
-               -F "caption=✅ *BUILD BERHASIL!*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A📦 Ukuran: ${FILE_SIZE_MB} MB%0A📅 $(date +'%Y-%m-%d %H:%M:%S')%0A⚡ Flutter SDK: 3.8.1%0A%0A⬇️ Klik file di atas untuk download APK" \
-               "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
+          APK_PATH="${{ env.APK_FILE }}"
+          FILE_SIZE=$(stat -c%s "$APK_PATH" 2>/dev/null || echo "0")
+          FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE / 1024 / 1024" | bc)
 
-      # ============================================
-      # STEP 13: Send success message & delete progress
-      # ============================================
+          curl -s \
+            -F "chat_id=${{ env.CHAT_ID }}" \
+            -F "document=@$APK_PATH" \
+            -F "caption=✅ BUILD BERHASIL!%0A%0AMode: ${{ env.BUILD_TYPE }}%0ABuild ID: ${{ env.BUILD_ID }}%0AUkuran: ${FILE_SIZE_MB} MB%0AFlutter: ${{ env.FLUTTER_VERSION }}" \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
+
       - name: Send success notification
         if: success()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "text=🎉 *SUKSES!* APK berhasil dikirim dengan Flutter 3.8.1%0A%0A🔗 Lihat detail: ${{ steps.artifact.outputs.artifact_url }}" \
-            -d "parse_mode=Markdown"
-          
+            -d "text=🎉 Build selesai! APK sudah dikirim.%0A%0ADetail: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            || true
+
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/deleteMessage" \
             -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}"
+            -d "message_id=${{ env.MESSAGE_ID }}" \
+            || true
 
-      # ============================================
-      # STEP 14: ERROR HANDLING
-      # ============================================
       - name: Send error notification
         if: failure()
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "text=❌ *BUILD GAGAL!*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A🔗 Cek log: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}%0A%0A🔄 Silakan coba lagi atau hubungi administrator." \
-            -d "parse_mode=Markdown"
-          
+            -d "text=❌ BUILD GAGAL!%0A%0AMode: ${{ env.BUILD_TYPE }}%0A%0ALog: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            || true
+
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/deleteMessage" \
             -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}"
+            -d "message_id=${{ env.MESSAGE_ID }}" \
+            || true
 
-      # ============================================
-      # STEP 15: Cleanup
-      # ============================================
       - name: Cleanup
         if: always()
-        run: |
-          rm -rf ./flutter_project
-          echo "🧹 Cleanup completed"            
-                                    
-                                                
+        run: rm -rf ./flutter_project || true
+ENDOFFILE
+echo "Done"
+Output                    
