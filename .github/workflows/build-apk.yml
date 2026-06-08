@@ -54,7 +54,7 @@ env:
   CHAT_ID: ${{ github.event.inputs.chat_id }}
   MESSAGE_ID: ${{ github.event.inputs.message_id }}
   USER_ID: ${{ github.event.inputs.user_id }}
-  FLUTTER_VERSION: 3.8.1
+  FLUTTER_VERSION: ^3.8.1
   JAVA_VERSION: 17
 
 jobs:
@@ -106,7 +106,7 @@ jobs:
           publish_to: 'none'
           version: 1.0.0+1
           environment:
-            sdk: ^3.0.0
+            sdk: ^3.8.1
           dependencies:
             flutter:
               sdk: flutter
@@ -150,7 +150,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: 'stable'
+          channel: 'master'
           cache: true
 
       - name: Update status - 25%
