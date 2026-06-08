@@ -42,11 +42,13 @@ on:
         required: false
         type: string
 
+# Permission yang dibutuhkan
 permissions:
   contents: read
   actions: write
   checks: write
 
+# Environment variables
 env:
   BUILD_ID: ${{ github.event.inputs.build_id }}
   PLATFORM: ${{ github.event.inputs.platform }}
@@ -64,9 +66,15 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      # ============================================
+      # STEP 1: Checkout repository
+      # ============================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ============================================
+      # STEP 2: Update status - 0%
+      # ============================================
       - name: Update status - 0% (Initializing)
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
@@ -75,6 +83,9 @@ jobs:
             -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A📅 Tanggal: $(date +'%Y-%m-%d %H:%M:%S')%0A%0A▱▱▱▱▱▱▱▱▱▱ 0%%%0A⚙️ Menginisialisasi build..." \
             -d "parse_mode=Markdown"
 
+      # ============================================
+      # STEP 3: Download atau Clone Project Flutter
+      # ============================================
       - name: Get Flutter project source
         run: |
           mkdir -p flutter_project
@@ -90,7 +101,10 @@ jobs:
             git clone "${{ github.event.inputs.repo_url }}" .
           else
             echo "📁 Creating demo Flutter project with SDK ^3.8.1..."
+            # Buat project Flutter demo jika tidak ada URL
             flutter create --org com.build --project-name build_app .
+            
+            # Update pubspec.yaml dengan SDK ^3.8.1
             cat > pubspec.yaml << 'EOF'
 name: build_app
 description: A Flutter project with SDK ^3.8.1
@@ -114,6 +128,7 @@ flutter:
   uses-material-design: true
 EOF
             
+            # Buat main.dart custom
             cat > lib/main.dart << 'EOF'
 import 'package:flutter/material.dart';
 
@@ -188,6 +203,14 @@ class MyHomePage extends StatelessWidget {
                   color: Colors.grey,
                 ),
               ),
+              const SizedBox(height: 10),
+              Text(
+                'Flutter SDK: ${const String.fromEnvironment('FLUTTER_VERSION')}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                ),
+              ),
             ],
           ),
         ),
@@ -198,15 +221,24 @@ class MyHomePage extends StatelessWidget {
 EOF
           fi
 
+      # ============================================
+      # STEP 4: Setup Java
+      # ============================================
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
 
+      # ============================================
+      # STEP 5: Setup Android SDK
+      # ============================================
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      # ============================================
+      # STEP 6: Setup Flutter SDK 3.8.1 (support ^3.8.1)
+      # ============================================
       - name: Setup Flutter SDK 3.8.1
         uses: subosito/flutter-action@v2
         with:
@@ -228,12 +260,24 @@ EOF
             -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▱▱▱▱▱▱▱ 25%%%0A📦 Menginstall dependencies Flutter..." \
             -d "parse_mode=Markdown"
 
+      # ============================================
+      # STEP 7: Flutter Clean & Get Dependencies
+      # ============================================
       - name: Flutter clean & get dependencies
         working-directory: ./flutter_project
         run: |
           flutter clean
           flutter pub get
+          
+          # Cek versi Flutter dan Dart
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📱 Flutter Version:"
+          flutter --version
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+      # ============================================
+      # STEP 8: Build APK Flutter
+      # ============================================
       - name: Update status - 50% (Building)
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
@@ -256,8 +300,9 @@ EOF
             echo "APK_NAME=app-release.apk" >> $GITHUB_ENV
           fi
           
+          # Cek apakah APK berhasil dibuat
           if [ -f "${{ env.APK_PATH }}" ]; then
-            echo "✅ APK built successfully"
+            echo "✅ APK built successfully with Flutter 3.8.1"
             echo "build_success=true" >> $GITHUB_ENV
           else
             echo "❌ APK build failed"
@@ -265,6 +310,9 @@ EOF
             exit 1
           fi
 
+      # ============================================
+      # STEP 9: Update status - 75% (Packaging)
+      # ============================================
       - name: Update status - 75% (Packaging)
         if: success()
         run: |
@@ -274,6 +322,9 @@ EOF
             -d "text=🚀 *MEMULAI BUILD*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A%0A▰▰▰▰▰▰▰▱▱▱ 75%%%0A📦 Mem-package APK..." \
             -d "parse_mode=Markdown"
 
+      # ============================================
+      # STEP 10: Upload APK as Artifact
+      # ============================================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -282,13 +333,22 @@ EOF
           retention-days: 7
           if-no-files-found: error
 
+      # ============================================
+      # STEP 11: Get Artifact URL
+      # ============================================
       - name: Get artifact download URL
         id: artifact
         run: |
           RUN_ID=${{ github.run_id }}
           ARTIFACT_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
           echo "artifact_url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
+          
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/suites/${{ github.run_id }}/artifacts/"
+          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
 
+      # ============================================
+      # STEP 12: Send APK to Telegram
+      # ============================================
       - name: Update status - 100% (Sending APK)
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
@@ -308,6 +368,9 @@ EOF
                -F "caption=✅ *BUILD BERHASIL!*%0A%0A📱 Platform: ${{ env.PLATFORM }}%0A🔧 Tipe: ${{ env.BUILD_TYPE }}%0A🆔 Build ID: ${{ env.BUILD_ID }}%0A📦 Ukuran: ${FILE_SIZE_MB} MB%0A📅 $(date +'%Y-%m-%d %H:%M:%S')%0A⚡ Flutter SDK: 3.8.1%0A%0A⬇️ Klik file di atas untuk download APK" \
                "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
 
+      # ============================================
+      # STEP 13: Send success message & delete progress
+      # ============================================
       - name: Send success notification
         if: success()
         run: |
@@ -320,6 +383,9 @@ EOF
             -d "chat_id=${{ env.CHAT_ID }}" \
             -d "message_id=${{ env.MESSAGE_ID }}"
 
+      # ============================================
+      # STEP 14: ERROR HANDLING
+      # ============================================
       - name: Send error notification
         if: failure()
         run: |
@@ -332,9 +398,13 @@ EOF
             -d "chat_id=${{ env.CHAT_ID }}" \
             -d "message_id=${{ env.MESSAGE_ID }}"
 
+      # ============================================
+      # STEP 15: Cleanup
+      # ============================================
       - name: Cleanup
         if: always()
         run: |
           rm -rf ./flutter_project
           echo "🧹 Cleanup completed"            
-                          
+                                    
+                                                
