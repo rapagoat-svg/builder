@@ -1,308 +1,159 @@
-name: Build APK from Telegram Bot
+name: Flutter Build Bot
 
 on:
   workflow_dispatch:
     inputs:
-      platform:
-        description: 'Platform (android_sdk / flutter)'
-        required: true
-        type: choice
-        options:
-          - android_sdk
-          - flutter
       build_type:
-        description: 'Build Type (debug / release)'
-        required: true
+        description: 'Tipe build: apk-debug | apk-release | aab-release'
+        required: false
+        default: 'apk-debug'
         type: choice
         options:
-          - debug
-          - release
-      user_id:
-        description: 'Telegram User ID'
-        required: true
-        type: string
-      chat_id:
-        description: 'Telegram Chat ID'
-        required: true
-        type: string
-      message_id:
-        description: 'Telegram Message ID'
-        required: true
-        type: string
-      build_id:
-        description: 'Build ID'
-        required: true
-        type: string
-      zip_url:
-        description: 'URL ZIP project (optional)'
+          - apk-debug
+          - apk-release
+          - aab-release
+      flutter_version:
+        description: 'Flutter version override (kosongkan untuk default)'
         required: false
-        type: string
-      repo_url:
-        description: 'GitHub Repository URL (optional)'
-        required: false
+        default: ''
         type: string
 
-permissions:
-  contents: read
-  actions: write
-  checks: write
-
-env:
-  BUILD_ID: ${{ github.event.inputs.build_id }}
-  PLATFORM: ${{ github.event.inputs.platform }}
-  BUILD_TYPE: ${{ github.event.inputs.build_type }}
-  CHAT_ID: ${{ github.event.inputs.chat_id }}
-  MESSAGE_ID: ${{ github.event.inputs.message_id }}
-  USER_ID: ${{ github.event.inputs.user_id }}
-  # PERBAIKAN 1: Hapus tanda ^ pada versi, atau biarkan kosong untuk mengambil versi terbaru channel tersebut
-  FLUTTER_VERSION: '3.8.1' 
-  JAVA_VERSION: 17
+  push:
+    branches:
+      - main
+    paths:
+      - 'lib/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'android/**'
+      - 'assets/**'
 
 jobs:
-  build-apk:
-    name: Build APK - ${{ github.event.inputs.platform }} (${{ github.event.inputs.build_type }})
+  build:
+    name: Build Flutter App
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Update status - 0%
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
-            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
-            --data-urlencode "text=🚀 Build dimulai
-
-          Mode: ${{ env.BUILD_TYPE }}
-          Build ID: ${{ env.BUILD_ID }}
-
-          ▱▱▱▱▱▱▱▱▱▱ 0%
-          ⚙️ Menginisialisasi..." \
-            -d "parse_mode=Markdown" || true
-
-      - name: Get Flutter project source
-        run: |
-          mkdir -p flutter_project
-          cd flutter_project
-
-          if [ -n "${{ github.event.inputs.zip_url }}" ]; then
-            echo "Downloading ZIP..."
-            curl -L -o project.zip "${{ github.event.inputs.zip_url }}"
-            unzip -q project.zip
-            rm project.zip
-
-          elif [ -n "${{ github.event.inputs.repo_url }}" ]; then
-            echo "Cloning repo..."
-            git clone "${{ github.event.inputs.repo_url }}" .
-
-          else
-            echo "Creating demo Flutter project..."
-            flutter create --org com.build --project-name build_app .
-
-            cat << 'EOF' > pubspec.yaml
-          name: build_app
-          description: A Flutter demo project
-          publish_to: 'none'
-          version: 1.0.0+1
-          environment:
-            sdk: ^3.8.1
-          dependencies:
-            flutter:
-              sdk: flutter
-            cupertino_icons: ^1.0.6
-          dev_dependencies:
-            flutter_test:
-              sdk: flutter
-            flutter_lints: ^3.0.0
-          flutter:
-            uses-material-design: true
-          EOF
-
-            cat << 'EOF' > lib/main.dart
-          import 'package:flutter/material.dart';
-          void main() { runApp(const MyApp()); }
-          class MyApp extends StatelessWidget {
-            const MyApp({super.key});
-            @override
-            Widget build(BuildContext context) {
-              return MaterialApp(
-                home: Scaffold(
-                  appBar: AppBar(title: const Text('Build Success')),
-                  body: const Center(child: Text('Build Berhasil!')),
-                ),
-              );
-            }
-          }
-          EOF
-          fi
-
-      - name: Setup Java
-        uses: actions/setup-java@v3
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: ${{ env.JAVA_VERSION }}
+          java-version: '17'
+          cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Setup Flutter SDK
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          # PERBAIKAN 2: Menggunakan channel 'stable' agar kompatibel dengan sdk ^3.8.1
-          # Jika Anda ingin versi terbaru stable, jangan isi flutter-version.
-          # Jika ingin versi spesifik 3.8.1, uncomment baris di bawah dan pastikan FLUTTER_VERSION valid.
+          flutter-version: '3.32.8'
           channel: 'stable'
-          # flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Update status - 25%
+      - name: Fix Kotlin Version Compatibility
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
-            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
-            --data-urlencode "text=🚀 Build berjalan...
-
-          Mode: ${{ env.BUILD_TYPE }}
-
-          ▰▰▰▱▱▱▱▱▱▱ 25%
-          📦 Install dependencies..." \
-            -d "parse_mode=Markdown" || true
-
-      - name: Flutter clean & get dependencies
-        working-directory: ./flutter_project
-        run: |
-          PROJECT_DIR="."
-          if [ ! -f "pubspec.yaml" ]; then
-            PROJECT_DIR=$(find . -name "pubspec.yaml" -not -path "*/.*" | head -1 | xargs dirname)
-            echo "Found pubspec.yaml at: $PROJECT_DIR"
-            cd "$PROJECT_DIR"
+          BUILD_GRADLE="android/build.gradle"
+          if [ -f "$BUILD_GRADLE" ]; then
+            if grep -q "kotlin_version" "$BUILD_GRADLE"; then
+              sed -i "s/ext\.kotlin_version = '[^']*'/ext.kotlin_version = '1.9.10'/" "$BUILD_GRADLE"
+              echo "kotlin_version patched ke 1.9.10"
+            else
+              sed -i "/buildscript {/a\\    ext.kotlin_version = '1.9.10'" "$BUILD_GRADLE"
+              echo "kotlin_version ditambahkan"
+            fi
           fi
-          flutter clean
+          echo "--- android/build.gradle ---"
+          cat "$BUILD_GRADLE" 2>/dev/null || echo "(not found)"
+
+      - name: Set Build Type
+        id: build_info
+        run: |
+          BUILD_TYPE="${{ github.event.inputs.build_type }}"
+          if [ -z "$BUILD_TYPE" ]; then
+            BUILD_TYPE="apk-debug"
+          fi
+          echo "build_type=$BUILD_TYPE" >> $GITHUB_OUTPUT
+          echo "Build type: $BUILD_TYPE"
+
+      - name: Fix Duplicate Icon Resources
+        run: |
+          # Hapus .jpg launcher icons yang duplikat dengan .png
+          find android/app/src/main/res -name "ic_launcher.jpg" -delete
+          find android/app/src/main/res -name "ic_launcher_round.jpg" -delete
+          find android/app/src/main/res -name "ic_launcher_foreground.jpg" -delete
+          echo "✅ Duplicate jpg icons removed"
+          ls android/app/src/main/res/mipmap-mdpi/ 2>/dev/null || true
+
+      - name: Flutter Pub Get
+        run: |
+          flutter config --no-analytics
+          dart --disable-analytics
           flutter pub get
 
-      - name: Update status - 50%
+      - name: Build APK Debug
+        if: steps.build_info.outputs.build_type == 'apk-debug'
         run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
-            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
-            --data-urlencode "text=🚀 Build berjalan...
+          flutter build apk --debug \
+            --no-shrink \
+            --target-platform android-arm,android-arm64,android-x64
+          echo "APK Debug selesai"
 
-          Mode: ${{ env.BUILD_TYPE }}
-
-          ▰▰▰▰▰▱▱▱▱▱ 50%
-          🔨 Kompilasi APK..." \
-            -d "parse_mode=Markdown" || true
-
-      - name: Build Flutter APK
-        working-directory: ./flutter_project
+      - name: Build APK Release
+        if: steps.build_info.outputs.build_type == 'apk-release'
         run: |
-          if [ ! -f "pubspec.yaml" ]; then
-            PROJECT_DIR=$(find . -name "pubspec.yaml" -not -path "*/.*" | head -1 | xargs dirname)
-            cd "$PROJECT_DIR"
+          flutter build apk --release \
+            --obfuscate \
+            --split-debug-info=build/debug-info \
+            --target-platform android-arm,android-arm64,android-x64
+          echo "APK Release selesai"
+
+      - name: Build AAB Release
+        if: steps.build_info.outputs.build_type == 'aab-release'
+        run: |
+          flutter build appbundle --release \
+            --obfuscate \
+            --split-debug-info=build/debug-info
+          echo "AAB Release selesai"
+
+      - name: Prepare Output Files
+        run: |
+          mkdir -p output
+          BUILD_TYPE="${{ steps.build_info.outputs.build_type }}"
+          TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+          APP_NAME=$(grep '^name:' pubspec.yaml | awk '{print $2}' | tr -d '\r')
+
+          if [ "$BUILD_TYPE" = "apk-debug" ]; then
+            APK_PATH=$(find build/app/outputs/flutter-apk -name "*.apk" | head -1)
+            cp "$APK_PATH" "output/${APP_NAME}_debug_${TIMESTAMP}.apk"
+          elif [ "$BUILD_TYPE" = "apk-release" ]; then
+            APK_PATH=$(find build/app/outputs/flutter-apk -name "app-release.apk" | head -1)
+            cp "$APK_PATH" "output/${APP_NAME}_release_${TIMESTAMP}.apk"
+          elif [ "$BUILD_TYPE" = "aab-release" ]; then
+            AAB_PATH=$(find build/app/outputs/bundle/release -name "*.aab" | head -1)
+            cp "$AAB_PATH" "output/${APP_NAME}_release_${TIMESTAMP}.aab"
           fi
 
-          if [ "${{ env.BUILD_TYPE }}" = "debug" ]; then
-            flutter build apk --debug
-            APK_FILE="build/app/outputs/flutter-apk/app-debug.apk"
-          else
-            flutter build apk --release
-            APK_FILE="build/app/outputs/flutter-apk/app-release.apk"
-          fi
+          echo "Output files:"
+          ls -lh output/
 
-          echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
-
-          if [ -f "$APK_FILE" ]; then
-            echo "BUILD_SUCCESS=true" >> $GITHUB_ENV
-          else
-            echo "BUILD_SUCCESS=false" >> $GITHUB_ENV
-            exit 1
-          fi
-
-      - name: Update status - 75%
-        if: success()
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
-            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
-            --data-urlencode "text=🚀 Build berjalan...
-
-          Mode: ${{ env.BUILD_TYPE }}
-
-          ▰▰▰▰▰▰▰▱▱▱ 75%
-          📦 Packaging APK..." \
-            -d "parse_mode=Markdown" || true
-
-      - name: Upload APK artifact
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-${{ env.BUILD_TYPE }}-${{ env.BUILD_ID }}
-          path: ./flutter_project/${{ env.APK_FILE }}
-          retention-days: 7
+          name: flutter-build-${{ steps.build_info.outputs.build_type }}-${{ github.run_number }}
+          path: output/
+          retention-days: 3
           if-no-files-found: error
 
-      - name: Update status - 100%
-        if: success()
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/editMessageText" \
-            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
-            --data-urlencode "message_id=${{ env.MESSAGE_ID }}" \
-            --data-urlencode "text=🚀 Build berjalan...
-
-          Mode: ${{ env.BUILD_TYPE }}
-
-          ▰▰▰▰▰▰▰▰▰▰ 100%
-          ✅ Selesai! Mengirim APK..." \
-            -d "parse_mode=Markdown" || true
-
-      - name: Send APK via Telegram
-        if: success()
-        working-directory: ./flutter_project
-        run: |
-          APK_PATH="${{ env.APK_FILE }}"
-          FILE_SIZE=$(stat -c%s "$APK_PATH" 2>/dev/null || echo "0")
-          FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE / 1024 / 1024" | bc)
-
-          # PERBAIKAN 3: Memperbaiki URL API (menghapus 'brand/')
-          curl -s \
-            -F "chat_id=${{ env.CHAT_ID }}" \
-            -F "document=@$APK_PATH" \
-            -F "caption=✅ BUILD BERHASIL!
-
-          Mode: ${{ env.BUILD_TYPE }}
-          Build ID: ${{ env.BUILD_ID }}
-          Ukuran: ${FILE_SIZE_MB} MB" \
-            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument"
-
-      - name: Send success notification
-        if: success()
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
-            --data-urlencode "text=🎉 Build selesai! APK sudah dikirim.
-
-          Detail: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
-
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/deleteMessage" \
-            -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}" || true
-
-      - name: Send error notification
-        if: failure()
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            --data-urlencode "chat_id=${{ env.CHAT_ID }}" \
-            --data-urlencode "text=❌ BUILD GAGAL!
-
-          Mode: ${{ env.BUILD_TYPE }}
-
-          Log: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
-
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/deleteMessage" \
-            -d "chat_id=${{ env.CHAT_ID }}" \
-            -d "message_id=${{ env.MESSAGE_ID }}" || true
-
-      - name: Cleanup
+      - name: Build Summary
         if: always()
-        run: rm -rf ./flutter_project || true                    
+        run: |
+          echo "## Flutter Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Key | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Type | ${{ steps.build_info.outputs.build_type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Flutter Version | ${{ github.event.inputs.flutter_version != '' && github.event.inputs.flutter_version || '3.32.8 (default)' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run Number | #${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered By | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY                
