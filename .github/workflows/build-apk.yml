@@ -6,7 +6,7 @@ on:
       build_type:
         description: 'Tipe build: apk-debug | apk-release | aab-release'
         required: false
-        default: 'apk-debug'
+        default: 'apk-release'
         type: choice
         options:
           - apk-debug
@@ -52,6 +52,25 @@ jobs:
           channel: 'stable'
           cache: true
 
+      # PERBAIKAN: Menghapus import R yang menyebabkan error dan memastikan Namespace benar
+      - name: Fix Java and Namespace
+        run: |
+          # Hapus import R karena jika package sama, import tidak diperlukan
+          FILE_PATH="android/app/src/main/java/com/nullx/pp/SpyService.java"
+          if [ -f "$FILE_PATH" ]; then
+            sed -i '/import com.nullx.pp.R;/d' "$FILE_PATH"
+            echo "✅ Import R dihapus"
+          fi
+          
+          # Pastikan namespace terpasang agar R ter-generate
+          BUILD_GRADLE="android/app/build.gradle"
+          if [ -f "$BUILD_GRADLE" ]; then
+            if ! grep -q "namespace 'com.nullx.pp'" "$BUILD_GRADLE"; then
+              sed -i "/android {/a \    namespace 'com.nullx.pp'" "$BUILD_GRADLE"
+              echo "✅ Namespace dipaksa ke com.nullx.pp"
+            fi
+          fi
+
       - name: Fix Kotlin Version Compatibility
         run: |
           BUILD_GRADLE="android/build.gradle"
@@ -79,11 +98,44 @@ jobs:
 
       - name: Fix Duplicate Icon Resources
         run: |
-          # Hapus .jpg launcher icons yang duplikat dengan .png
-          find android/app/src/main/res -name "ic_launcher.jpg" -delete
-          find android/app/src/main/res -name "ic_launcher_round.jpg" -delete
-          find android/app/src/main/res -name "ic_launcher_foreground.jpg" -delete
-          echo "✅ Duplicate jpg icons removed"
+          NEED_CONVERT=0
+          for dir in android/app/src/main/res/mipmap-*; do
+            [ -d "$dir" ] || continue
+            for base in ic_launcher ic_launcher_round ic_launcher_foreground; do
+              jpg="$dir/$base.jpg"
+              [ -f "$jpg" ] || continue
+              if [ ! -f "$dir/$base.png" ] && [ ! -f "$dir/$base.webp" ]; then
+                NEED_CONVERT=1
+              fi
+            done
+          done
+
+          if [ "$NEED_CONVERT" = "1" ] && ! command -v convert >/dev/null 2>&1; then
+            echo "📦 Installing ImageMagick (dibutuhkan untuk convert icon)..."
+            sudo apt-get update -y && sudo apt-get install -y imagemagick
+          fi
+
+          for dir in android/app/src/main/res/mipmap-*; do
+            [ -d "$dir" ] || continue
+            for base in ic_launcher ic_launcher_round ic_launcher_foreground; do
+              jpg="$dir/$base.jpg"
+              [ -f "$jpg" ] || continue
+
+              if [ -f "$dir/$base.png" ] || [ -f "$dir/$base.webp" ]; then
+                echo "🗑️ Hapus duplikat: $jpg (sudah ada format lain)"
+                rm -f "$jpg"
+              else
+                echo "🔄 Convert $jpg -> $base.png (icon ini cuma ada dalam .jpg)"
+                convert "$jpg" "$dir/$base.png"
+                if [ -f "$dir/$base.png" ]; then
+                  rm -f "$jpg"
+                else
+                  echo "⚠️ Convert gagal, biarkan $jpg apa adanya"
+                fi
+              fi
+            done
+          done
+          echo "✅ Icon resources checked & fixed"
           ls android/app/src/main/res/mipmap-mdpi/ 2>/dev/null || true
 
       - name: Flutter Pub Get
@@ -156,4 +208,5 @@ jobs:
           echo "| Flutter Version | ${{ github.event.inputs.flutter_version != '' && github.event.inputs.flutter_version || '3.32.8 (default)' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Run Number | #${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY                
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+                        
