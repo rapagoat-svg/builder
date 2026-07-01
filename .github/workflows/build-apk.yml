@@ -17,6 +17,11 @@ on:
         required: false
         default: ''
         type: string
+      release_tag:
+        description: 'Release tag dari bot Telegram'
+        required: false
+        default: ''
+        type: string
 
   push:
     branches:
@@ -37,6 +42,71 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      # ============================================
+      # ⬇️ TAMBAHAN: Download ZIP dari Release Bot
+      # ============================================
+      - name: 📥 Download Project ZIP from Bot Release
+        if: github.event.inputs.release_tag != ''
+        run: |
+          echo "📥 Mendownload project dari release: ${{ github.event.inputs.release_tag }}"
+          
+          # Get release info
+          RELEASE_URL="https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.release_tag }}"
+          echo "🔗 Release URL: $RELEASE_URL"
+          
+          # Download release asset
+          ASSET_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "$RELEASE_URL" | jq -r '.assets[0].browser_download_url')
+          
+          if [ "$ASSET_URL" = "null" ] || [ -z "$ASSET_URL" ]; then
+            echo "❌ Tidak ada asset di release!"
+            echo "Mencoba download dari source..."
+            curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "$RELEASE_URL" | jq '.'
+            exit 1
+          fi
+          
+          echo "📦 Download dari: $ASSET_URL"
+          curl -L -o project.zip "$ASSET_URL"
+          
+          # Cek file
+          echo "📏 Size: $(du -h project.zip | cut -f1)"
+          
+          # Ekstrak ZIP
+          echo "📂 Mengekstrak ZIP..."
+          mkdir -p project_extracted
+          unzip -o project.zip -d project_extracted/
+          
+          # Cari pubspec.yaml
+          if [ -f "project_extracted/pubspec.yaml" ]; then
+            echo "✅ pubspec.yaml ditemukan di root ZIP"
+            cp -rf project_extracted/* .
+            cp -rf project_extracted/.* . 2>/dev/null || true
+          else
+            # Cari di subfolder
+            echo "🔍 Mencari pubspec.yaml di subfolder..."
+            SUBFOLDER=$(find project_extracted -name "pubspec.yaml" -not -path "*/.*" | head -1)
+            
+            if [ -n "$SUBFOLDER" ]; then
+              PROJECT_DIR=$(dirname "$SUBFOLDER")
+              echo "✅ pubspec.yaml ditemukan di: $PROJECT_DIR"
+              cp -rf "$PROJECT_DIR"/* .
+              cp -rf "$PROJECT_DIR"/.* . 2>/dev/null || true
+            else
+              echo "❌ pubspec.yaml TIDAK DITEMUKAN!"
+              echo "Isi ZIP:"
+              ls -laR project_extracted/ | head -50
+              exit 1
+            fi
+          fi
+          
+          # Cleanup
+          rm -rf project_extracted project.zip
+          
+          echo "✅ Project siap:"
+          echo "---"
+          ls -la
+          echo "---"
+          head -20 pubspec.yaml
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -209,4 +279,3 @@ jobs:
           echo "| Run Number | #${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
-                        
