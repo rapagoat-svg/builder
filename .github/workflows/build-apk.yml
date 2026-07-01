@@ -44,24 +44,65 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================
-      # ⬇️ TAMBAHAN: Download ZIP dari Release Bot
+      # ⬇️ DOWNLOAD ZIP DARI RELEASE BOT
       # ============================================
       - name: 📥 Download Project ZIP from Bot Release
         if: github.event.inputs.release_tag != ''
         run: |
           echo "📥 Mendownload project dari release: ${{ github.event.inputs.release_tag }}"
           
-          # Get release info
-          RELEASE_URL="https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.release_tag }}"
-          echo "🔗 Release URL: $RELEASE_URL"
+          # TUNGGU dulu 15 detik untuk memastikan release sudah siap
+          echo "⏳ Menunggu 15 detik untuk memastikan release siap..."
+          sleep 15
           
-          # Download release asset
-          ASSET_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "$RELEASE_URL" | jq -r '.assets[0].browser_download_url')
+          # Get release info dengan RETRY
+          MAX_RETRY=5
+          RETRY=0
+          ASSET_URL=""
           
-          if [ "$ASSET_URL" = "null" ] || [ -z "$ASSET_URL" ]; then
-            echo "❌ Tidak ada asset di release!"
-            echo "Mencoba download dari source..."
-            curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "$RELEASE_URL" | jq '.'
+          while [ $RETRY -lt $MAX_RETRY ]; do
+            echo "🔍 Attempt $((RETRY+1))/$MAX_RETRY: Mencari release..."
+            
+            # Get release by tag
+            RELEASE_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.release_tag }}")
+            
+            # Cek apakah release ada
+            RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id')
+            
+            if [ "$RELEASE_ID" != "null" ] && [ -n "$RELEASE_ID" ]; then
+              echo "✅ Release ditemukan! ID: $RELEASE_ID"
+              
+              # Get asset URL
+              ASSET_URL=$(echo "$RELEASE_RESPONSE" | jq -r '.assets[0].browser_download_url')
+              
+              if [ "$ASSET_URL" != "null" ] && [ -n "$ASSET_URL" ]; then
+                echo "✅ Asset ditemukan: $ASSET_URL"
+                break
+              else
+                echo "⚠️ Release ada tapi asset belum siap, tunggu 10 detik..."
+                sleep 10
+              fi
+            else
+              echo "⚠️ Release belum ditemukan, tunggu 10 detik..."
+              sleep 10
+            fi
+            
+            RETRY=$((RETRY+1))
+          done
+          
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            echo "❌ Gagal mendapatkan asset setelah $MAX_RETRY kali percobaan!"
+            echo "Release response:"
+            echo "$RELEASE_RESPONSE" | jq '.'
+            
+            # Coba list semua release
+            echo ""
+            echo "📋 Daftar release yang ada:"
+            curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=5" | \
+              jq '.[].tag_name'
+            
             exit 1
           fi
           
@@ -69,6 +110,11 @@ jobs:
           curl -L -o project.zip "$ASSET_URL"
           
           # Cek file
+          if [ ! -f project.zip ]; then
+            echo "❌ File ZIP gagal didownload!"
+            exit 1
+          fi
+          
           echo "📏 Size: $(du -h project.zip | cut -f1)"
           
           # Ekstrak ZIP
