@@ -302,6 +302,7 @@ jobs:
       # ─── Create build.gradle ──────────────────────
       - name: 🔧 Create build.gradle
         run: |
+          # Project-level build.gradle
           cat > web2apk-project/build.gradle << 'BUILD_EOF'
           buildscript {
               repositories {
@@ -321,6 +322,7 @@ jobs:
           }
           BUILD_EOF
           
+          # App-level build.gradle (TANPA MINIFY)
           cat > web2apk-project/app/build.gradle << 'APP_BUILD_EOF'
           apply plugin: 'com.android.application'
           
@@ -338,8 +340,7 @@ jobs:
               
               buildTypes {
                   release {
-                      minifyEnabled true
-                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+                      minifyEnabled false
                   }
                   debug {
                       minifyEnabled false
@@ -354,7 +355,6 @@ jobs:
           
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
-              implementation 'androidx.webkit:webkit:1.9.0'
           }
           APP_BUILD_EOF
           
@@ -428,7 +428,14 @@ jobs:
       # ─── Copy Icons to Project ────────────────────
       - name: 🖼️ Copy Icons to Project
         run: |
-          # Copy icons to mipmap folders with fallback
+          # Fallback: copy original icon to all mipmap folders
+          for dir in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            if [ -f assets/icon_original.png ]; then
+              cp assets/icon_original.png web2apk-project/app/src/main/res/$dir/ic_launcher.png 2>/dev/null || true
+            fi
+          done
+          
+          # Also copy generated icons if available
           if [ -f res/icon/android/icon-48.png ]; then
             cp res/icon/android/icon-48.png web2apk-project/app/src/main/res/mipmap-mdpi/ic_launcher.png 2>/dev/null || true
           fi
@@ -445,15 +452,6 @@ jobs:
             cp res/icon/android/icon-192.png web2apk-project/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png 2>/dev/null || true
           fi
           
-          # Fallback: copy original icon to all mipmap folders
-          for dir in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
-            if [ ! -f web2apk-project/app/src/main/res/$dir/ic_launcher.png ]; then
-              if [ -f assets/icon_original.png ]; then
-                cp assets/icon_original.png web2apk-project/app/src/main/res/$dir/ic_launcher.png 2>/dev/null || true
-              fi
-            fi
-          done
-          
           echo "✅ Icons copied to project"
 
       # ─── Build APK ────────────────────────────────
@@ -462,9 +460,22 @@ jobs:
           cd web2apk-project
           
           echo "🔨 Building APK..."
+          echo "=== Checking files ==="
+          ls -la gradlew
+          ls -la gradle/wrapper/
+          
           chmod +x gradlew
           
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          # Build dengan output lengkap
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+          
+          # Cek hasil build
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "❌ Build failed!"
+            echo "=== Last 100 lines of build log ==="
+            tail -100 build.log
+            exit 1
+          fi
           
           echo "✅ APK Build complete!"
           find . -name "*.apk" -type f
