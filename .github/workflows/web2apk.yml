@@ -302,7 +302,7 @@ jobs:
       # ─── Create build.gradle ──────────────────────
       - name: 🔧 Create build.gradle
         run: |
-          # Project-level build.gradle
+          # Project-level build.gradle (TANPA allprojects - repository diatur di settings.gradle)
           cat > web2apk-project/build.gradle << 'BUILD_EOF'
           buildscript {
               repositories {
@@ -313,16 +313,9 @@ jobs:
                   classpath 'com.android.tools.build:gradle:8.2.0'
               }
           }
-          
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
           BUILD_EOF
           
-          # App-level build.gradle (TANPA MINIFY - TANPA PROGUARD)
+          # App-level build.gradle
           cat > web2apk-project/app/build.gradle << 'APP_BUILD_EOF'
           apply plugin: 'com.android.application'
           
@@ -339,9 +332,6 @@ jobs:
               }
               
               buildTypes {
-                  release {
-                      minifyEnabled false
-                  }
                   debug {
                       minifyEnabled false
                   }
@@ -372,7 +362,7 @@ jobs:
               }
           }
           dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
               repositories {
                   google()
                   mavenCentral()
