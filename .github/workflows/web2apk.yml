@@ -26,7 +26,7 @@ env:
   APP_NAME: ${{ github.event.inputs.app_name }}
   WEB_URL: ${{ github.event.inputs.web_url }}
   ICON_URL: ${{ github.event.inputs.icon_url }}
-  PACKAGE_NAME: com.web2apk.${{ github.run_number }}
+  PACKAGE_NAME: com.web2apk.build${{ github.run_number }}
 
 # ============================================
 # JOBS
@@ -164,8 +164,7 @@ jobs:
         run: |
           cat > web2apk-project/app/src/main/AndroidManifest.xml << 'MANIFEST_EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-              package="${{ env.PACKAGE_NAME }}">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               
               <uses-permission android:name="android.permission.INTERNET" />
               <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -180,7 +179,7 @@ jobs:
                   android:theme="@style/AppTheme">
                   
                   <activity
-                      android:name=".MainActivity"
+                      android:name="com.web2apk.app.MainActivity"
                       android:configChanges="orientation|screenSize|keyboardHidden"
                       android:exported="true">
                       <intent-filter>
