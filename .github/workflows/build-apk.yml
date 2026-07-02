@@ -202,6 +202,41 @@ jobs:
           echo "--- android/build.gradle ---"
           cat "$BUILD_GRADLE" 2>/dev/null || echo "(not found)"
 
+      # PERBAIKAN: Fix minSdkVersion & overrideLibrary
+      - name: 🔧 Fix minSdkVersion & AndroidManifest
+        run: |
+          # Update app/build.gradle minSdkVersion ke 23
+          BUILD_GRADLE="android/app/build.gradle"
+          if [ -f "$BUILD_GRADLE" ]; then
+            sed -i 's/minSdkVersion 21/minSdkVersion 23/g' "$BUILD_GRADLE"
+            sed -i 's/minSdkVersion = 21/minSdkVersion = 23/g' "$BUILD_GRADLE"
+            sed -i 's/minSdk 21/minSdk 23/g' "$BUILD_GRADLE"
+            sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' "$BUILD_GRADLE"
+            echo "✅ minSdkVersion updated to 23"
+          fi
+          
+          # Update AndroidManifest.xml
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            # Tambahkan xmlns:tools
+            if ! grep -q "xmlns:tools" "$MANIFEST"; then
+              sed -i 's/<manifest/<manifest xmlns:tools="http:\/\/schemas.android.com\/tools"/' "$MANIFEST"
+              echo "✅ xmlns:tools added"
+            fi
+            
+            # Tambahkan overrideLibrary
+            if ! grep -q "overrideLibrary" "$MANIFEST"; then
+              sed -i 's/<application/<application\n        tools:overrideLibrary="com.llfbandit.record"/' "$MANIFEST"
+              echo "✅ overrideLibrary added"
+            fi
+            
+            echo "--- AndroidManifest.xml ---"
+            head -10 "$MANIFEST"
+          fi
+          
+          echo "--- android/app/build.gradle ---"
+          head -30 "$BUILD_GRADLE" 2>/dev/null || echo "(not found)"
+
       - name: Set Build Type
         id: build_info
         run: |
