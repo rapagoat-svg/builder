@@ -18,10 +18,6 @@ on:
         description: 'URL Icon (PNG/JPG)'
         required: true
         type: string
-      timestamp:
-        description: 'Timestamp'
-        required: false
-        type: string
 
 # ============================================
 # ENVIRONMENT VARIABLES
@@ -84,32 +80,62 @@ jobs:
           
           # Check if download success
           if [ -f assets/icon_original.png ]; then
-            echo "✅ Icon downloaded successfully"
-            file assets/icon_original.png
+            FILE_SIZE=$(stat -c%s assets/icon_original.png 2>/dev/null || stat -f%z assets/icon_original.png 2>/dev/null || echo 0)
+            echo "✅ Icon downloaded: ${FILE_SIZE} bytes"
           else
             echo "❌ Failed to download icon, using default"
-            # Create default icon using ImageMagick
-            convert -size 512x512 xc:#6C5CE7 \
-              -fill white -font Helvetica -pointsize 200 \
-              -gravity center -annotate 0 "APK" \
+            convert -size 512x512 xc:'#6C5CE7' \
+              -fill white -gravity center -pointsize 200 -annotate 0 "APK" \
               assets/icon_original.png
+          fi
+          
+          # Convert ke PNG kalau bukan PNG
+          if ! file assets/icon_original.png | grep -q "PNG"; then
+            echo "🔄 Converting to PNG..."
+            convert assets/icon_original.png assets/icon_original.png 2>/dev/null || true
           fi
 
       # ─── Generate Icons ───────────────────────────
       - name: 🎨 Generate Icon Sizes
+        continue-on-error: true
         run: |
+          # Cek file icon
+          if [ ! -f assets/icon_original.png ]; then
+            echo "❌ Icon file not found!"
+            mkdir -p res/icon/android
+            convert -size 512x512 xc:'#6C5CE7' -fill white -gravity center -pointsize 100 -annotate 0 "APK" assets/icon_original.png
+          fi
+          
+          echo "📐 Icon info:"
+          file assets/icon_original.png 2>/dev/null || echo "(file command not available)"
+          
           mkdir -p res/icon/android
           
           # Generate multiple icon sizes
           for size in 48 72 96 144 192 512; do
-            convert assets/icon_original.png -resize ${size}x${size} \
-              res/icon/android/icon-${size}.png
-            echo "✅ Generated icon-${size}.png"
+            echo "🎨 Generating icon-${size}.png..."
+            
+            if command -v convert >/dev/null 2>&1; then
+              convert assets/icon_original.png -resize ${size}x${size}! res/icon/android/icon-${size}.png 2>/dev/null || {
+                echo "⚠️ convert failed for ${size}, copying original..."
+                cp assets/icon_original.png res/icon/android/icon-${size}.png 2>/dev/null || true
+              }
+            else
+              cp assets/icon_original.png res/icon/android/icon-${size}.png 2>/dev/null || true
+            fi
+            
+            if [ -f res/icon/android/icon-${size}.png ]; then
+              echo "   ✅ ${size}x${size} generated"
+            else
+              echo "   ⚠️ ${size}x${size} skipped"
+            fi
           done
           
           # Copy to main icon
-          cp assets/icon_original.png res/icon/icon.png
-          echo "✅ All icons generated"
+          cp assets/icon_original.png res/icon/icon.png 2>/dev/null || true
+          
+          echo "✅ Icons generated:"
+          ls -la res/icon/android/ 2>/dev/null || echo "(no icons dir)"
 
       # ─── Create Web App ───────────────────────────
       - name: 🌐 Create WebView App
@@ -180,10 +206,8 @@ jobs:
           import android.webkit.WebViewClient;
           import android.webkit.WebSettings;
           import android.webkit.WebChromeClient;
-          import android.view.View;
           import android.view.Window;
           import android.view.WindowManager;
-          import android.graphics.Color;
           
           public class MainActivity extends Activity {
               private WebView webView;
@@ -192,7 +216,6 @@ jobs:
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
                   
-                  // Fullscreen
                   requestWindowFeature(Window.FEATURE_NO_TITLE);
                   getWindow().setFlags(
                       WindowManager.LayoutParams.FLAG_FULLSCREEN,
@@ -202,7 +225,6 @@ jobs:
                   webView = new WebView(this);
                   setContentView(webView);
                   
-                  // WebView Settings
                   WebSettings webSettings = webView.getSettings();
                   webSettings.setJavaScriptEnabled(true);
                   webSettings.setDomStorageEnabled(true);
@@ -215,23 +237,15 @@ jobs:
                   webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
                   webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
                   
-                  // WebView Client
                   webView.setWebViewClient(new WebViewClient() {
                       @Override
                       public boolean shouldOverrideUrlLoading(WebView view, String url) {
                           view.loadUrl(url);
                           return true;
                       }
-                      
-                      @Override
-                      public void onPageFinished(WebView view, String url) {
-                          super.onPageFinished(view, url);
-                      }
                   });
                   
                   webView.setWebChromeClient(new WebChromeClient());
-                  
-                  // Load URL
                   webView.loadUrl("${{ env.WEB_URL }}");
               }
               
@@ -288,7 +302,6 @@ jobs:
       # ─── Create build.gradle ──────────────────────
       - name: 🔧 Create build.gradle
         run: |
-          # Project-level build.gradle
           cat > web2apk-project/build.gradle << 'BUILD_EOF'
           buildscript {
               repositories {
@@ -308,7 +321,6 @@ jobs:
           }
           BUILD_EOF
           
-          # App-level build.gradle
           cat > web2apk-project/app/build.gradle << 'APP_BUILD_EOF'
           apply plugin: 'com.android.application'
           
@@ -393,12 +405,31 @@ jobs:
       # ─── Copy Icons to Project ────────────────────
       - name: 🖼️ Copy Icons to Project
         run: |
-          # Copy icons to mipmap folders
-          cp res/icon/android/icon-48.png web2apk-project/app/src/main/res/mipmap-mdpi/ic_launcher.png
-          cp res/icon/android/icon-72.png web2apk-project/app/src/main/res/mipmap-hdpi/ic_launcher.png
-          cp res/icon/android/icon-96.png web2apk-project/app/src/main/res/mipmap-xhdpi/ic_launcher.png
-          cp res/icon/android/icon-144.png web2apk-project/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-          cp res/icon/android/icon-192.png web2apk-project/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          # Copy icons to mipmap folders with fallback
+          if [ -f res/icon/android/icon-48.png ]; then
+            cp res/icon/android/icon-48.png web2apk-project/app/src/main/res/mipmap-mdpi/ic_launcher.png 2>/dev/null || true
+          fi
+          if [ -f res/icon/android/icon-72.png ]; then
+            cp res/icon/android/icon-72.png web2apk-project/app/src/main/res/mipmap-hdpi/ic_launcher.png 2>/dev/null || true
+          fi
+          if [ -f res/icon/android/icon-96.png ]; then
+            cp res/icon/android/icon-96.png web2apk-project/app/src/main/res/mipmap-xhdpi/ic_launcher.png 2>/dev/null || true
+          fi
+          if [ -f res/icon/android/icon-144.png ]; then
+            cp res/icon/android/icon-144.png web2apk-project/app/src/main/res/mipmap-xxhdpi/ic_launcher.png 2>/dev/null || true
+          fi
+          if [ -f res/icon/android/icon-192.png ]; then
+            cp res/icon/android/icon-192.png web2apk-project/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png 2>/dev/null || true
+          fi
+          
+          # Fallback: copy original icon to all mipmap folders
+          for dir in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            if [ ! -f web2apk-project/app/src/main/res/$dir/ic_launcher.png ]; then
+              if [ -f assets/icon_original.png ]; then
+                cp assets/icon_original.png web2apk-project/app/src/main/res/$dir/ic_launcher.png 2>/dev/null || true
+              fi
+            fi
+          done
           
           echo "✅ Icons copied to project"
 
@@ -410,12 +441,9 @@ jobs:
           echo "🔨 Building APK..."
           chmod +x gradlew
           
-          # Build debug APK
           ./gradlew assembleDebug --no-daemon --stacktrace
           
           echo "✅ APK Build complete!"
-          
-          # List generated APKs
           find . -name "*.apk" -type f
 
       # ─── Rename APK ───────────────────────────────
@@ -428,7 +456,6 @@ jobs:
             exit 1
           fi
           
-          # Clean app name for filename
           CLEAN_NAME=$(echo "${{ env.APP_NAME }}" | sed 's/[^a-zA-Z0-9]/_/g')
           APK_NAME="${CLEAN_NAME}_v1.0_web2apk.apk"
           
