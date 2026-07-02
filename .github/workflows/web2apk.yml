@@ -322,7 +322,7 @@ jobs:
           }
           BUILD_EOF
           
-          # App-level build.gradle (TANPA MINIFY)
+          # App-level build.gradle (TANPA MINIFY - TANPA PROGUARD)
           cat > web2apk-project/app/build.gradle << 'APP_BUILD_EOF'
           apply plugin: 'com.android.application'
           
@@ -453,6 +453,31 @@ jobs:
           fi
           
           echo "✅ Icons copied to project"
+          
+          # Verify icons exist
+          echo "=== Icon verification ==="
+          for dir in mipmap-mdpi mipmap-hdpi mipmap-xhdpi mipmap-xxhdpi mipmap-xxxhdpi; do
+            if [ -f web2apk-project/app/src/main/res/$dir/ic_launcher.png ]; then
+              echo "✅ $dir/ic_launcher.png exists"
+            else
+              echo "⚠️ $dir/ic_launcher.png MISSING - creating placeholder"
+              convert -size 48x48 xc:'#6C5CE7' web2apk-project/app/src/main/res/$dir/ic_launcher.png 2>/dev/null || true
+            fi
+          done
+
+      # ─── Verify Project Structure ─────────────────
+      - name: 🔍 Verify Project Structure
+        run: |
+          echo "=== Full Project Structure ==="
+          find web2apk-project -type f | sort
+          echo ""
+          echo "=== Gradle files ==="
+          ls -la web2apk-project/gradlew
+          ls -la web2apk-project/gradle/wrapper/
+          echo ""
+          echo "=== App files ==="
+          ls -la web2apk-project/app/
+          ls -la web2apk-project/app/src/main/
 
       # ─── Build APK ────────────────────────────────
       - name: 🔨 Build APK
@@ -460,24 +485,37 @@ jobs:
           cd web2apk-project
           
           echo "🔨 Building APK..."
-          echo "=== Checking files ==="
-          ls -la gradlew
-          ls -la gradle/wrapper/
-          
           chmod +x gradlew
           
-          # Build dengan output lengkap
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+          # Build, simpan SEMUA output ke file
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log
+          BUILD_EXIT=$?
           
-          # Cek hasil build
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "❌ Build failed!"
-            echo "=== Last 100 lines of build log ==="
-            tail -100 build.log
+          echo ""
+          echo "=========================================="
+          echo "=== BUILD OUTPUT (ERRORS & FAILURES) ==="
+          echo "=========================================="
+          grep -i -E "error|failed|failure|exception|BUILD FAILED|what went wrong|could not|unable to" /tmp/build.log || echo "(no error keywords found)"
+          
+          echo ""
+          echo "=========================================="
+          echo "=== LAST 80 LINES ==="
+          echo "=========================================="
+          tail -80 /tmp/build.log
+          
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo ""
+            echo "=========================================="
+            echo "❌ BUILD FAILED with exit code: $BUILD_EXIT"
+            echo "=========================================="
             exit 1
           fi
           
-          echo "✅ APK Build complete!"
+          echo ""
+          echo "=========================================="
+          echo "✅ Build success!"
+          echo "=========================================="
           find . -name "*.apk" -type f
 
       # ─── Rename APK ───────────────────────────────
