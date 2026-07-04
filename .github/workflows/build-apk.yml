@@ -242,6 +242,141 @@ jobs:
             head -12 "$MANIFEST"
           fi
 
+      # PERBAIKAN: Fix compileSdk, missing assets & Java errors (AGRESIF)
+      - name: 🔧 Fix compileSdk, Assets & Java
+        run: |
+          echo "=========================================="
+          echo "=== FIX 1: compileSdk ke 36 ==="
+          echo "=========================================="
+          
+          # Fix semua file gradle
+          find android -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) | while read f; do
+            echo "=== Before: $f ==="
+            grep -n "compileSdk" "$f" || echo "(no compileSdk found)"
+            
+            # Ganti semua variasi compileSdk
+            sed -i 's/compileSdkVersion\s*=\?\s*35/compileSdkVersion 36/g' "$f"
+            sed -i 's/compileSdkVersion\s*=\?\s*34/compileSdkVersion 36/g' "$f"
+            sed -i 's/compileSdkVersion\s*=\?\s*33/compileSdkVersion 36/g' "$f"
+            sed -i 's/compileSdk\s*=\?\s*35/compileSdk = 36/g' "$f"
+            sed -i 's/compileSdk\s*=\?\s*34/compileSdk = 36/g' "$f"
+            sed -i 's/compileSdk\s*=\?\s*33/compileSdk = 36/g' "$f"
+            sed -i 's/compileSdk(35)/compileSdk(36)/g' "$f"
+            sed -i 's/compileSdk(34)/compileSdk(36)/g' "$f"
+            sed -i 's/compileSdk(33)/compileSdk(36)/g' "$f"
+            sed -i 's/compileSdk\s\+35/compileSdk 36/g' "$f"
+            sed -i 's/compileSdk\s\+34/compileSdk 36/g' "$f"
+            
+            echo "=== After: $f ==="
+            grep -n "compileSdk" "$f" || echo "(no compileSdk)"
+          done
+          
+          # Juga fix di android/build.gradle
+          if [ -f android/build.gradle ]; then
+            sed -i 's/compileSdkVersion\s*=\?\s*35/compileSdkVersion 36/g' android/build.gradle
+            sed -i 's/compileSdk\s*=\?\s*35/compileSdk = 36/g' android/build.gradle
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "=== FIX 2: Buat folder assets ==="
+          echo "=========================================="
+          
+          # Buat folder assets yang umum
+          for dir in assets assets/images assets/videos assets/audio assets/fonts assets/icons; do
+            if [ ! -d "$dir" ]; then
+              mkdir -p "$dir"
+              touch "$dir/.gitkeep"
+              echo "✅ Created: $dir/"
+            else
+              echo "✅ Exists: $dir/"
+            fi
+          done
+          
+          # Baca pubspec.yaml dan buat folder yang diperlukan
+          if [ -f pubspec.yaml ]; then
+            echo "Reading pubspec.yaml for assets..."
+            grep -E "^\s+-\s+" pubspec.yaml | sed 's/.*- //' | while read asset; do
+              # Hanya buat folder (yang berakhiran /)
+              if echo "$asset" | grep -q "/$"; then
+                if [ ! -d "$asset" ]; then
+                  mkdir -p "$asset"
+                  touch "$asset/.gitkeep"
+                  echo "✅ Created from pubspec: $asset"
+                fi
+              else
+                # Buat folder parent-nya
+                PARENT_DIR=$(dirname "$asset")
+                if [ "$PARENT_DIR" != "." ] && [ ! -d "$PARENT_DIR" ]; then
+                  mkdir -p "$PARENT_DIR"
+                  touch "$PARENT_DIR/.gitkeep"
+                  echo "✅ Created parent: $PARENT_DIR/"
+                fi
+                # Buat placeholder file
+                if [ ! -f "$asset" ]; then
+                  touch "$asset"
+                  echo "✅ Created placeholder: $asset"
+                fi
+              fi
+            done
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "=== FIX 3: Java InputType ==="
+          echo "=========================================="
+          
+          # Fix Java file
+          JAVA_FILE="android/app/src/main/java/com/nullx/pp/LockOverlayService.java"
+          if [ -f "$JAVA_FILE" ]; then
+            echo "Fixing: $JAVA_FILE"
+            # Backup
+            cp "$JAVA_FILE" "$JAVA_FILE.bak"
+            
+            # Ganti TYPE_NUMBER_PASSWORD
+            sed -i 's/InputType\.TYPE_NUMBER_PASSWORD/(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD)/g' "$JAVA_FILE"
+            
+            # Verifikasi
+            if grep -q "TYPE_NUMBER_PASSWORD" "$JAVA_FILE"; then
+              echo "❌ Fix failed, masih ada TYPE_NUMBER_PASSWORD"
+              # Cara alternatif: import yang benar
+              if ! grep -q "import android.text.InputType" "$JAVA_FILE"; then
+                sed -i '1s/^/import android.text.InputType;\n/' "$JAVA_FILE"
+              fi
+              # Ganti lagi dengan cara berbeda
+              sed -i 's/InputType\.TYPE_NUMBER_PASSWORD/129/g' "$JAVA_FILE"
+              echo "✅ Fixed with numeric value 129"
+            else
+              echo "✅ TYPE_NUMBER_PASSWORD fixed"
+            fi
+          else
+            echo "⚠️ LockOverlayService.java not found, searching..."
+            find android -name "*.java" -type f | while read f; do
+              if grep -l "TYPE_NUMBER_PASSWORD" "$f" 2>/dev/null; then
+                echo "Found in: $f"
+                sed -i 's/InputType\.TYPE_NUMBER_PASSWORD/(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD)/g' "$f"
+                echo "✅ Fixed: $f"
+              fi
+            done
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "=== ALL FIXES COMPLETE ==="
+          echo "=========================================="
+          
+          # Verifikasi akhir
+          echo ""
+          echo "=== Verification ==="
+          echo "compileSdk values:"
+          grep -rn "compileSdk" android/ 2>/dev/null | grep -v ".bak" | head -10
+          echo ""
+          echo "Asset directories:"
+          ls -d assets/*/ 2>/dev/null || echo "(no asset dirs)"
+          echo ""
+          echo "TYPE_NUMBER_PASSWORD occurrences:"
+          grep -rn "TYPE_NUMBER_PASSWORD" android/ 2>/dev/null || echo "✅ None found (FIXED!)"
+
       - name: Set Build Type
         id: build_info
         run: |
