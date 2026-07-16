@@ -168,256 +168,7 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # ========== PERBAIKAN BARU: Setup Icon & Assets ==========
-      - name: 🎨 Setup App Icon dari assets/icon/icon.jpg
-        run: |
-          echo "=========================================="
-          echo "=== SETUP APP ICON ==="
-          echo "=========================================="
-          
-          # Cek apakah icon.jpg ada
-          ICON_SOURCE="assets/icon/icon.jpg"
-          if [ ! -f "$ICON_SOURCE" ]; then
-            echo "⚠️ $ICON_SOURCE tidak ditemukan, mencari icon di tempat lain..."
-            
-            # Cari icon di lokasi lain
-            for possible_icon in assets/icon/icon.png assets/icon.png icon.jpg icon.png; do
-              if [ -f "$possible_icon" ]; then
-                ICON_SOURCE="$possible_icon"
-                echo "✅ Icon ditemukan: $ICON_SOURCE"
-                break
-              fi
-            done
-          fi
-          
-          if [ ! -f "$ICON_SOURCE" ]; then
-            echo "⚠️ Tidak ada icon ditemukan, membuat icon default..."
-            
-            # Buat folder assets/icon jika belum ada
-            mkdir -p assets/icon
-            
-            # Generate icon default menggunakan ImageMagick atau buat placeholder
-            if command -v convert >/dev/null 2>&1; then
-              # Buat icon gradient biru sederhana
-              convert -size 1024x1024 gradient:blue-cyan \
-                -fill white -font Helvetica -pointsize 200 \
-                -gravity center -annotate 0 "X" \
-                assets/icon/icon.jpg
-              echo "✅ Icon default dibuat dengan ImageMagick"
-            else
-              # Install ImageMagick jika belum ada
-              echo "📦 Menginstall ImageMagick..."
-              sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
-              
-              convert -size 1024x1024 gradient:blue-cyan \
-                -fill white -font Helvetica -pointsize 200 \
-                -gravity center -annotate 0 "X" \
-                assets/icon/icon.jpg
-              echo "✅ Icon default dibuat"
-            fi
-            ICON_SOURCE="assets/icon/icon.jpg"
-          fi
-          
-          echo "📱 Icon source: $ICON_SOURCE"
-          echo "📏 Icon size: $(du -h "$ICON_SOURCE" | cut -f1)"
-          
-          # Generate semua ukuran icon untuk Android
-          echo ""
-          echo "=== Generating Android Icons ==="
-          
-          # Buat folder mipmap untuk berbagai density
-          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            mkdir -p "android/app/src/main/res/mipmap-$density"
-          done
-          
-          # Ukuran icon per density
-          declare -A ICON_SIZES
-          ICON_SIZES[mdpi]=48
-          ICON_SIZES[hdpi]=72
-          ICON_SIZES[xhdpi]=96
-          ICON_SIZES[xxhdpi]=144
-          ICON_SIZES[xxxhdpi]=192
-          
-          # Ukuran adaptive icon
-          declare -A ADAPTIVE_SIZES
-          ADAPTIVE_SIZES[mdpi]=108
-          ADAPTIVE_SIZES[hdpi]=162
-          ADAPTIVE_SIZES[xhdpi]=216
-          ADAPTIVE_SIZES[xxhdpi]=324
-          ADAPTIVE_SIZES[xxxhdpi]=432
-          
-          # Generate icon untuk setiap density
-          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            size=${ICON_SIZES[$density]}
-            adaptive_size=${ADAPTIVE_SIZES[$density]}
-            
-            # Regular icon (legacy)
-            convert "$ICON_SOURCE" -resize "${size}x${size}" \
-              "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
-            
-            # Adaptive icon - foreground
-            convert "$ICON_SOURCE" -resize "${adaptive_size}x${adaptive_size}" \
-              -gravity center -background none -extent "${adaptive_size}x${adaptive_size}" \
-              "android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png"
-            
-            # Adaptive icon - background (putih)
-            convert -size "${adaptive_size}x${adaptive_size}" xc:white \
-              "android/app/src/main/res/mipmap-${density}/ic_launcher_background.png"
-            
-            echo "✅ Generated icons for $density (${size}x${size})"
-          done
-          
-          # Buat juga adaptive icon XML jika belum ada
-          ADAPTIVE_ICON_DIR="android/app/src/main/res/mipmap-anydpi-v26"
-          mkdir -p "$ADAPTIVE_ICON_DIR"
-          
-          # ic_launcher.xml untuk adaptive icon
-          cat > "$ADAPTIVE_ICON_DIR/ic_launcher.xml" << 'XMLEOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@mipmap/ic_launcher_background"/>
-              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-          </adaptive-icon>
-          XMLEOF
-          echo "✅ Adaptive icon XML dibuat"
-          
-          # ic_launcher_round.xml
-          cat > "$ADAPTIVE_ICON_DIR/ic_launcher_round.xml" << 'XMLEOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@mipmap/ic_launcher_background"/>
-              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-          </adaptive-icon>
-          XMLEOF
-          echo "✅ Round icon XML dibuat"
-          
-          # Verifikasi
-          echo ""
-          echo "=== Icon Verification ==="
-          ls -lh android/app/src/main/res/mipmap-mdpi/
-          echo "---"
-          cat "$ADAPTIVE_ICON_DIR/ic_launcher.xml"
-          
-          echo ""
-          echo "✅ App Icon setup complete!"
-
-      # ========== PERBAIKAN BARU: Fix pubspec.yaml assets ==========
-      - name: 📋 Fix pubspec.yaml Asset References
-        run: |
-          echo "=========================================="
-          echo "=== FIX PUBSPEC.YAML ASSETS ==="
-          echo "=========================================="
-          
-          if [ ! -f pubspec.yaml ]; then
-            echo "❌ pubspec.yaml tidak ditemukan!"
-            exit 1
-          fi
-          
-          # Backup pubspec.yaml
-          cp pubspec.yaml pubspec.yaml.bak
-          
-          # Cek apakah assets section sudah ada
-          if ! grep -q "assets:" pubspec.yaml; then
-            echo "➕ Menambahkan assets section ke pubspec.yaml"
-            cat >> pubspec.yaml << 'EOF'
-
-          flutter:
-            assets:
-              - assets/icon/icon.jpg
-              - assets/icon/
-              - assets/images/
-              - assets/
-          EOF
-          else
-            # Cek apakah assets/icon/icon.jpg sudah terdaftar
-            if ! grep -q "assets/icon/icon.jpg" pubspec.yaml; then
-              echo "➕ Menambahkan assets/icon/icon.jpg ke pubspec.yaml"
-              
-              # Tambahkan setelah baris "assets:"
-              sed -i '/^flutter:/,/^[a-z]/{
-                /assets:/a\    - assets/icon/icon.jpg
-                /assets:/a\    - assets/icon/
-              }' pubspec.yaml
-            fi
-            
-            # Pastikan folder assets/ terdaftar
-            if ! grep -q "\- assets/" pubspec.yaml; then
-              echo "➕ Menambahkan folder assets/"
-              sed -i '/^flutter:/,/^[a-z]/{
-                /assets:/a\    - assets/
-              }' pubspec.yaml
-            fi
-          fi
-          
-          echo "--- pubspec.yaml (flutter section) ---"
-          sed -n '/^flutter:/,/^[a-z]/p' pubspec.yaml | head -20
-          
-          echo ""
-          echo "✅ pubspec.yaml fixed"
-
-      # ========== PERBAIKAN BARU: Buat folder & file assets yang diperlukan ==========
-      - name: 📁 Create Required Assets Structure
-        run: |
-          echo "=========================================="
-          echo "=== CREATE ASSETS STRUCTURE ==="
-          echo "=========================================="
-          
-          # Buat semua folder yang diperlukan
-          mkdir -p assets/icon
-          mkdir -p assets/images
-          mkdir -p assets/videos
-          mkdir -p assets/audio
-          mkdir -p assets/fonts
-          mkdir -p assets/icons
-          mkdir -p assets/animations
-          
-          # Buat file .gitkeep di setiap folder kosong
-          for dir in assets/*/; do
-            if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
-              touch "$dir.gitkeep"
-            fi
-          done
-          
-          # Pastikan icon.jpg ada di assets/icon/
-          if [ ! -f "assets/icon/icon.jpg" ]; then
-            echo "⚠️ assets/icon/icon.jpg belum ada"
-            
-            # Cek apakah icon.jpg ada di root atau tempat lain
-            if [ -f "icon.jpg" ]; then
-              cp icon.jpg assets/icon/icon.jpg
-              echo "✅ icon.jpg dipindahkan ke assets/icon/"
-            elif [ -f "assets/icon.jpg" ]; then
-              cp assets/icon.jpg assets/icon/icon.jpg
-              echo "✅ icon.jpg disalin dari assets/"
-            else
-              echo "🔄 Membuat icon.jpg default..."
-              if command -v convert >/dev/null 2>&1; then
-                convert -size 1024x1024 gradient:blue-cyan \
-                  -fill white -pointsize 200 -gravity center \
-                  -annotate 0 "APK" assets/icon/icon.jpg
-              else
-                # Buat file JPEG minimal (1x1 pixel biru) menggunakan Python
-                python3 -c "
-          import base64
-          # Minimal valid JPEG (1x1 pixel biru)
-          jpeg_data = base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYI4Q/SFhSRFJiMlMyU2RTVIOj0oWSlBwdUVRFVWWFlJmZ3R1dnd4eXqCg4SFhoeIiYqLjI2Oj8TFxpeYmZqio8Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigD//2Q==')
-          with open('assets/icon/icon.jpg', 'wb') as f:
-              f.write(jpeg_data)
-          "
-              fi
-              echo "✅ icon.jpg default dibuat"
-            fi
-          fi
-          
-          # Verifikasi
-          echo ""
-          echo "=== Assets Structure ==="
-          find assets -type f -o -type d | sort
-          
-          echo ""
-          echo "✅ Assets structure created"
-
-      # ========== PERBAIKAN: Menghapus import R dan fix Namespace ==========
+      # PERBAIKAN: Menghapus import R yang menyebabkan error dan memastikan Namespace benar
       - name: Fix Java and Namespace
         run: |
           # Hapus import R karena jika package sama, import tidak diperlukan
@@ -451,6 +202,7 @@ jobs:
           echo "--- android/build.gradle ---"
           cat "$BUILD_GRADLE" 2>/dev/null || echo "(not found)"
 
+      # PERBAIKAN: Fix minSdkVersion & overrideLibrary
       - name: 🔧 Fix minSdkVersion & AndroidManifest
         run: |
           echo "=== Fixing all gradle files ==="
@@ -490,6 +242,7 @@ jobs:
             head -12 "$MANIFEST"
           fi
 
+      # PERBAIKAN: Fix compileSdk, missing assets & Java errors (AGRESIF)
       - name: 🔧 Fix compileSdk, Assets & Java
         run: |
           echo "=========================================="
@@ -530,7 +283,7 @@ jobs:
           echo "=========================================="
           
           # Buat folder assets yang umum
-          for dir in assets assets/images assets/videos assets/audio assets/fonts assets/icons assets/icon assets/animations; do
+          for dir in assets assets/images assets/videos assets/audio assets/fonts assets/icons; do
             if [ ! -d "$dir" ]; then
               mkdir -p "$dir"
               touch "$dir/.gitkeep"
@@ -676,27 +429,11 @@ jobs:
           echo "✅ Icon resources checked & fixed"
           ls android/app/src/main/res/mipmap-mdpi/ 2>/dev/null || true
 
-      # ========== PERBAIKAN BARU: Flutter Pub Get dengan retry ==========
       - name: Flutter Pub Get
         run: |
           flutter config --no-analytics
           dart --disable-analytics
-          
-          echo "📦 Running flutter pub get..."
-          if ! flutter pub get 2>&1 | tee pub_get.log; then
-            echo "⚠️ Flutter pub get gagal, mencoba perbaikan..."
-            
-            # Cek error umum
-            if grep -q "Because .* depends on" pub_get.log; then
-              echo "🔧 Mencoba resolve dependency conflict..."
-              flutter pub upgrade
-            fi
-            
-            # Coba lagi
-            flutter pub get
-          fi
-          
-          echo "✅ Flutter pub get selesai"
+          flutter pub get
 
       - name: Build APK Debug
         if: steps.build_info.outputs.build_type == 'apk-debug'
@@ -730,29 +467,18 @@ jobs:
           TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
           APP_NAME=$(grep '^name:' pubspec.yaml | awk '{print $2}' | tr -d '\r')
 
-          # Salin APK/AAB
           if [ "$BUILD_TYPE" = "apk-debug" ]; then
             APK_PATH=$(find build/app/outputs/flutter-apk -name "*.apk" | head -1)
             cp "$APK_PATH" "output/${APP_NAME}_debug_${TIMESTAMP}.apk"
-            echo "✅ APK Debug: ${APP_NAME}_debug_${TIMESTAMP}.apk"
           elif [ "$BUILD_TYPE" = "apk-release" ]; then
             APK_PATH=$(find build/app/outputs/flutter-apk -name "app-release.apk" | head -1)
             cp "$APK_PATH" "output/${APP_NAME}_release_${TIMESTAMP}.apk"
-            echo "✅ APK Release: ${APP_NAME}_release_${TIMESTAMP}.apk"
           elif [ "$BUILD_TYPE" = "aab-release" ]; then
             AAB_PATH=$(find build/app/outputs/bundle/release -name "*.aab" | head -1)
             cp "$AAB_PATH" "output/${APP_NAME}_release_${TIMESTAMP}.aab"
-            echo "✅ AAB Release: ${APP_NAME}_release_${TIMESTAMP}.aab"
-          fi
-          
-          # Salin juga icon untuk preview
-          if [ -f "assets/icon/icon.jpg" ]; then
-            cp assets/icon/icon.jpg output/app_icon.jpg
-            echo "✅ App icon disalin ke output"
           fi
 
-          echo ""
-          echo "📦 Output files:"
+          echo "Output files:"
           ls -lh output/
 
       - name: Upload Build Artifact
@@ -766,8 +492,7 @@ jobs:
       - name: Build Summary
         if: always()
         run: |
-          echo "## 📱 Flutter Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Flutter Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Key | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| Build Type | ${{ steps.build_info.outputs.build_type }} |" >> $GITHUB_STEP_SUMMARY
@@ -775,7 +500,3 @@ jobs:
           echo "| Run Number | #${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Icon Source | assets/icon/icon.jpg |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📱 App Icon Preview" >> $GITHUB_STEP_SUMMARY
-          echo "App icon diambil dari \`assets/icon/icon.jpg\` dan otomatis di-generate untuk semua density Android." >> $GITHUB_STEP_SUMMARY
