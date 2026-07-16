@@ -51,9 +51,11 @@ jobs:
         run: |
           echo "📥 Mendownload project dari release: ${{ github.event.inputs.release_tag }}"
           
+          # TUNGGU dulu 15 detik untuk memastikan release sudah siap
           echo "⏳ Menunggu 15 detik untuk memastikan release siap..."
           sleep 15
           
+          # Get release info dengan RETRY
           MAX_RETRY=5
           RETRY=0
           ASSET_URL=""
@@ -61,13 +63,17 @@ jobs:
           while [ $RETRY -lt $MAX_RETRY ]; do
             echo "🔍 Attempt $((RETRY+1))/$MAX_RETRY: Mencari release..."
             
+            # Get release by tag
             RELEASE_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
               "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.release_tag }}")
             
+            # Cek apakah release ada
             RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id')
             
             if [ "$RELEASE_ID" != "null" ] && [ -n "$RELEASE_ID" ]; then
               echo "✅ Release ditemukan! ID: $RELEASE_ID"
+              
+              # Get asset URL
               ASSET_URL=$(echo "$RELEASE_RESPONSE" | jq -r '.assets[0].browser_download_url')
               
               if [ "$ASSET_URL" != "null" ] && [ -n "$ASSET_URL" ]; then
@@ -87,14 +93,23 @@ jobs:
           
           if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
             echo "❌ Gagal mendapatkan asset setelah $MAX_RETRY kali percobaan!"
+            echo "Release response:"
+            echo "$RELEASE_RESPONSE" | jq '.'
+            
+            # Coba list semua release
+            echo ""
+            echo "📋 Daftar release yang ada:"
             curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=5" | jq '.[].tag_name'
+              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=5" | \
+              jq '.[].tag_name'
+            
             exit 1
           fi
           
           echo "📦 Download dari: $ASSET_URL"
           curl -L -o project.zip "$ASSET_URL"
           
+          # Cek file
           if [ ! -f project.zip ]; then
             echo "❌ File ZIP gagal didownload!"
             exit 1
@@ -102,15 +117,18 @@ jobs:
           
           echo "📏 Size: $(du -h project.zip | cut -f1)"
           
+          # Ekstrak ZIP
           echo "📂 Mengekstrak ZIP..."
           mkdir -p project_extracted
           unzip -o project.zip -d project_extracted/
           
+          # Cari pubspec.yaml
           if [ -f "project_extracted/pubspec.yaml" ]; then
             echo "✅ pubspec.yaml ditemukan di root ZIP"
             cp -rf project_extracted/* .
             cp -rf project_extracted/.* . 2>/dev/null || true
           else
+            # Cari di subfolder
             echo "🔍 Mencari pubspec.yaml di subfolder..."
             SUBFOLDER=$(find project_extracted -name "pubspec.yaml" -not -path "*/.*" | head -1)
             
@@ -121,473 +139,21 @@ jobs:
               cp -rf "$PROJECT_DIR"/.* . 2>/dev/null || true
             else
               echo "❌ pubspec.yaml TIDAK DITEMUKAN!"
+              echo "Isi ZIP:"
               ls -laR project_extracted/ | head -50
               exit 1
             fi
           fi
           
+          # Cleanup
           rm -rf project_extracted project.zip
           
           echo "✅ Project siap:"
+          echo "---"
           ls -la
+          echo "---"
           head -20 pubspec.yaml
 
-      # ============================================
-      # 🔧 PERBAIKAN ERROR OTAX
-      # ============================================
-      - name: 🔧 Fix Otax Package Error
-        run: |
-          echo "=========================================="
-          echo "=== FIX OTAX PACKAGE ERROR ==="
-          echo "=========================================="
-          
-          if [ -f pubspec.yaml ]; then
-            if grep -q "otax" pubspec.yaml; then
-              echo "⚠️ Package 'otax' ditemukan di pubspec.yaml"
-              
-              if grep -A2 "otax:" pubspec.yaml | grep -q "path:"; then
-                OTAX_PATH=$(grep -A2 "otax:" pubspec.yaml | grep "path:" | sed 's/.*path:\s*//' | tr -d '\r')
-                if [ ! -d "$OTAX_PATH" ]; then
-                  echo "❌ Folder otax tidak ditemukan, menghapus dependency..."
-                  sed -i '/otax:/,/^$\|^[a-z]/{/otax:/d;/path:/d;/git:/d;/url:/d;/ref:/d;/^$/d}' pubspec.yaml
-                  echo "✅ Dependency otax dihapus"
-                fi
-              elif grep -A2 "otax:" pubspec.yaml | grep -q "git:"; then
-                GIT_URL=$(grep -A3 "otax:" pubspec.yaml | grep "url:" | sed 's/.*url:\s*//' | tr -d '\r')
-                if [ -n "$GIT_URL" ]; then
-                  git clone "$GIT_URL" otax_package 2>/dev/null || true
-                  if [ -d otax_package ]; then
-                    sed -i "s|git:|path: otax_package|g" pubspec.yaml
-                    sed -i "/url:/d" pubspec.yaml
-                    sed -i "/ref:/d" pubspec.yaml
-                    echo "✅ otax berhasil di-clone"
-                  fi
-                fi
-              fi
-            else
-              echo "✅ Package 'otax' tidak ada di pubspec.yaml"
-            fi
-          fi
-          
-          echo ""
-          echo "🔍 Mencari dan menghapus import otax..."
-          OTAX_IMPORTS=$(grep -rn "import 'package:otax/" lib/ 2>/dev/null || true)
-          
-          if [ -n "$OTAX_IMPORTS" ]; then
-            echo "$OTAX_IMPORTS"
-            find lib/ -name "*.dart" -type f | while read file; do
-              if grep -q "package:otax/" "$file"; then
-                sed -i "/import 'package:otax\//d" "$file"
-                echo "  Fixed: $file"
-              fi
-            done
-            echo "✅ Import otax dihapus"
-          else
-            echo "✅ Tidak ada import otax"
-          fi
-          
-          echo ""
-          echo "🔍 Mengganti class/method otax dengan placeholder..."
-          
-          for file in $(find lib/ -name "*.dart" -type f 2>/dev/null); do
-            MODIFIED=false
-            
-            if grep -q "AnimeStream" "$file" 2>/dev/null; then
-              sed -i 's/const AnimeStream()/const SizedBox.shrink()/g' "$file"
-              sed -i 's/AnimeStream()/SizedBox.shrink()/g' "$file"
-              MODIFIED=true
-            fi
-            
-            if grep -q "AppProvider" "$file" 2>/dev/null; then
-              sed -i 's/AppProvider()/ChangeNotifier()/g' "$file"
-              sed -i 's/create: (ctx) => AppProvider()/create: (ctx) => ChangeNotifier()/g' "$file"
-              MODIFIED=true
-            fi
-            
-            if grep -q "ensureAnimeStreamInitialized" "$file" 2>/dev/null; then
-              sed -i 's/ensureAnimeStreamInitialized()/Future.value(true)/g' "$file"
-              MODIFIED=true
-            fi
-            
-            if grep -q "PacmanScreen" "$file" 2>/dev/null; then
-              sed -i 's/const PacmanScreen()/const SizedBox.shrink()/g' "$file"
-              sed -i 's/PacmanScreen()/SizedBox.shrink()/g' "$file"
-              MODIFIED=true
-            fi
-            
-            if grep -q "AnimePage" "$file" 2>/dev/null; then
-              sed -i 's/AnimePage()/Scaffold(body: Center(child: Text("Coming Soon")))/g' "$file"
-              MODIFIED=true
-            fi
-            
-            [ "$MODIFIED" = true ] && echo "  Fixed: $file"
-          done
-          
-          # Bersihkan cache
-          find .dart_tool -name "package_config.json" -type f 2>/dev/null | while read f; do
-            sed -i '/otax/d' "$f" 2>/dev/null
-          done
-          
-          echo ""
-          echo "=== VERIFIKASI ==="
-          echo "Import otax tersisa:"
-          grep -rn "package:otax/" lib/ 2>/dev/null || echo "✅ BERSIH"
-          
-          echo ""
-          echo "✅ Fix Otax SELESAI!"
-
-      # ============================================
-      # 🔧 PERBAIKAN STUCK DI LOGO
-      # ============================================
-      - name: 🔧 Fix Stuck di Logo (Splash Screen)
-        run: |
-          echo "=========================================="
-          echo "=== FIX STUCK DI LOGO ==="
-          echo "=========================================="
-          
-          MAIN_FILE=$(find lib -name "main.dart" -type f | head -1)
-          
-          if [ -z "$MAIN_FILE" ]; then
-            echo "❌ main.dart tidak ditemukan!"
-            exit 1
-          fi
-          
-          echo "📄 main.dart: $MAIN_FILE"
-          
-          # Backup
-          cp "$MAIN_FILE" "$MAIN_FILE.bak"
-          
-          # Buat debug helper
-          mkdir -p lib/utils
-          
-          cat > lib/utils/debug_helper.dart << 'DARTEOF'
-          import 'package:flutter/foundation.dart';
-          import 'package:flutter/material.dart';
-
-          class DebugHelper {
-            static bool _initialized = false;
-            
-            static void init() {
-              if (_initialized) return;
-              _initialized = true;
-              
-              FlutterError.onError = (FlutterErrorDetails details) {
-                FlutterError.presentError(details);
-                debugPrint('=== FLUTTER ERROR ===');
-                debugPrint('${details.exception}');
-                debugPrint('${details.stack}');
-                debugPrint('====================');
-              };
-              
-              debugPrint('✅ DebugHelper initialized');
-            }
-            
-            static void log(String message) {
-              debugPrint('📱 $message');
-            }
-            
-            static void logError(String message, [dynamic error]) {
-              debugPrint('❌ $message: $error');
-            }
-          }
-          DARTEOF
-          
-          echo "✅ lib/utils/debug_helper.dart dibuat"
-          
-          # Wrap main dengan error handler
-          if grep -q "void main()" "$MAIN_FILE"; then
-            # Cek apakah sudah ada runZonedGuarded
-            if ! grep -q "runZonedGuarded" "$MAIN_FILE"; then
-              echo "🔧 Menambahkan error handler ke main.dart..."
-              
-              # Ambil semua import
-              IMPORTS=$(grep "^import\|^export" "$MAIN_FILE")
-              BODY=$(sed -n '/void main()/,$p' "$MAIN_FILE" | tail -n +2)
-              
-              cat > "$MAIN_FILE" << DARTEOF
-          import 'dart:async';
-          import 'package:flutter/material.dart';
-          import 'package:flutter/services.dart';
-          import 'utils/debug_helper.dart';
-          ${IMPORTS}
-
-          void main() {
-            DebugHelper.init();
-            debugPrint('🚀 App starting...');
-            
-            runZonedGuarded(() async {
-              WidgetsFlutterBinding.ensureInitialized();
-              
-              await SystemChrome.setPreferredOrientations([
-                DeviceOrientation.portraitUp,
-                DeviceOrientation.portraitDown,
-              ]);
-              
-              try {
-          ${BODY}
-              } catch (e, stack) {
-                debugPrint('❌ ERROR STARTING APP: \$e');
-                debugPrint('STACK: \$stack');
-                runApp(MaterialApp(
-                  home: Scaffold(
-                    body: Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(20),
-                        child: Text('App Error:\n\$e', textAlign: TextAlign.center),
-                      ),
-                    ),
-                  ),
-                ));
-              }
-            }, (error, stack) {
-              debugPrint('❌ UNCAUGHT ERROR: \$error');
-              debugPrint('STACK: \$stack');
-            });
-          }
-          DARTEOF
-              
-              echo "✅ main.dart di-wrap dengan error handler"
-            else
-              echo "✅ main.dart sudah memiliki error handler"
-            fi
-          fi
-          
-          # Tambahkan debug helper import jika belum ada
-          if ! grep -q "debug_helper" "$MAIN_FILE" 2>/dev/null; then
-            sed -i '1i import "utils/debug_helper.dart";' "$MAIN_FILE"
-            if ! grep -q "DebugHelper.init" "$MAIN_FILE"; then
-              sed -i 's/void main() {/void main() {\n  DebugHelper.init();\n  debugPrint("🚀 App starting...");/' "$MAIN_FILE"
-            fi
-            echo "✅ DebugHelper ditambahkan ke main.dart"
-          fi
-          
-          # Cek infinite loop
-          echo ""
-          echo "🔍 Memeriksa potensi infinite loop..."
-          for file in $(find lib -name "*.dart" -type f); do
-            if grep -q "setState" "$file" 2>/dev/null; then
-              if grep -B30 "setState" "$file" | grep -q "Widget build" 2>/dev/null; then
-                echo "  ⚠️ $file: setState() di dalam build() - POTENSI INFINITE LOOP!"
-              fi
-            fi
-          done
-          
-          # Cek sisa kode otax yang bisa crash
-          echo ""
-          echo "🔍 Memeriksa sisa kode berpotensi crash..."
-          PROBLEM_FILES=$(grep -rn "AnimeStream\|AppProvider\|PacmanScreen\|ensureAnimeStreamInitialized" lib/ 2>/dev/null || true)
-          
-          if [ -n "$PROBLEM_FILES" ]; then
-            echo "⚠️ Ditemukan:"
-            echo "$PROBLEM_FILES"
-            
-            for file in $(find lib -name "*.dart" -type f); do
-              if grep -q "AnimeStream\|AppProvider\|PacmanScreen\|ensureAnimeStreamInitialized" "$file" 2>/dev/null; then
-                sed -i 's/AnimeStream()/SizedBox.shrink()/g' "$file"
-                sed -i 's/AppProvider()/ChangeNotifier()/g' "$file"
-                sed -i 's/PacmanScreen()/SizedBox.shrink()/g' "$file"
-                sed -i 's/ensureAnimeStreamInitialized()/Future.value(true)/g' "$file"
-                echo "  Fixed: $file"
-              fi
-            done
-          else
-            echo "✅ Tidak ada kode berpotensi crash"
-          fi
-          
-          echo ""
-          echo "=== VERIFIKASI ==="
-          head -20 "$MAIN_FILE"
-          
-          echo ""
-          echo "✅ Fix Stuck di Logo SELESAI!"
-
-      # ============================================
-      # 📁 PERBAIKAN ASSETS STRUCTURE
-      # ============================================
-      - name: 📁 Fix Missing Assets Structure
-        run: |
-          echo "=========================================="
-          echo "=== FIX ASSETS STRUCTURE ==="
-          echo "=========================================="
-          
-          # Buat folder assets
-          mkdir -p assets/images assets/videos assets/icon assets/icons
-          mkdir -p lib/images lib/assets/images lib/assets/icons
-          
-          # Daftar assets dari pubspec.yaml
-          declare -a REQUIRED_ASSETS=(
-            "assets/images/otax.jpg"
-            "assets/images/ramadan_deco.png"
-            "assets/images/masjid_deco.png"
-            "assets/images/logo.jpg"
-            "assets/videos/otaxai.mp4"
-            "assets/videos/banner.mp4"
-            "assets/images/otaxlogo.png"
-            "lib/images/pacman.png"
-            "lib/images/ghost.png"
-            "lib/images/ghost2.png"
-            "lib/images/ghost3.png"
-            "assets/pacman_beginning.wav"
-            "assets/pacman_chomp.wav"
-            "assets/pacman_death.wav"
-            "assets/pacman_intermission.wav"
-            "lib/assets/images/search.png"
-            "lib/assets/images/broken_heart.png"
-            "lib/assets/images/check.png"
-            "lib/assets/images/ghost.png"
-            "lib/assets/icons/logo_foreground.png"
-            "lib/assets/icons/logo_monochrome.png"
-            "lib/assets/images/chisato.jpeg"
-            "lib/assets/images/mitsuha.jpg"
-            "lib/assets/images/profile_banner.jpg"
-            "lib/assets/images/chisato_AI.jpg"
-            "lib/assets/images/fluent_max.svg"
-            "lib/assets/images/fluent_min.svg"
-            "lib/assets/images/fluent_close.svg"
-            "assets/images/bedug_deco.png"
-            "assets/images/ketupat_deco.png"
-          )
-          
-          for asset in "${REQUIRED_ASSETS[@]}"; do
-            if [ ! -f "$asset" ]; then
-              PARENT_DIR=$(dirname "$asset")
-              mkdir -p "$PARENT_DIR"
-              
-              if [[ "$asset" == *.png ]]; then
-                printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82' > "$asset"
-                echo "✅ Placeholder PNG: $asset"
-              elif [[ "$asset" == *.jpg || "$asset" == *.jpeg ]]; then
-                printf '\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c\x1c $.\x27 $\x1c\x1c(7),01444\x1f\x27\xff\xdb\x00C\x01\t\t\t\x0c\x0b\x0c\x18\r\r\x182!\x1c!22222222222222222222222222222222222222222222222222\xff\xc0\x00\x11\x08\x00\x01\x00\x01\x03\x01"\x00\x02\x11\x01\x03\x11\x01\xff\xc4\x00\x1f\x00\x00\x01\x05\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xc4\x00\xb5\x10\x00\x02\x01\x03\x03\x02\x04\x03\x05\x05\x04\x04\x00\x00\x01}\x01\x02\x03\x00\x04\x11\x05\x12!1A\x06\x13Qa\x07"q\x142\x81\x91\xa1\x08#B\xb1\xc1\x15R\xd1\xf0$3br\x82\t\n\x16\x17\x18\x19\x1a%&\x27()*456789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x83\x84\x85\x86\x87\x88\x89\x8a\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xf1\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xff\xc4\x00\x1f\x01\x00\x03\x01\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x00\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\xff\xc4\x00\xb5\x11\x00\x02\x01\x02\x04\x04\x03\x04\x07\x05\x04\x04\x00\x01\x02w\x00\x01\x02\x03\x11\x04\x05!1\x06\x12AQ\x07q\x13"2\x81\x08\x14B\x91\xa1\xb1\xc1\t#4R\xf0\x15br\x82\n\x16\x17\x18\x19\x1a%&\x27()*456789:CDEFGHIJSTUVWXYZcdefghijstuvwxyz\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x92\x93\x94\x95\x96\x97\x98\x99\x9a\xa2\xa3\xa4\xa5\xa6\xa7\xa8\xa9\xaa\xb2\xb3\xb4\xb5\xb6\xb7\xb8\xb9\xba\xc2\xc3\xc4\xc5\xc6\xc7\xc8\xc9\xca\xd2\xd3\xd4\xd5\xd6\xd7\xd8\xd9\xda\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xf2\xf3\xf4\xf5\xf6\xf7\xf8\xf9\xfa\xff\xda\x00\x0c\x03\x01\x00\x02\x11\x03\x11\x00?\x00\xf9\xfe\x8a(\xa0\x0f\xff\xd9' > "$asset"
-                echo "✅ Placeholder JPG: $asset"
-              elif [[ "$asset" == *.svg ]]; then
-                echo '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>' > "$asset"
-                echo "✅ Placeholder SVG: $asset"
-              else
-                touch "$asset"
-                echo "✅ Placeholder: $asset"
-              fi
-            fi
-          done
-          
-          echo ""
-          echo "✅ Assets structure fixed!"
-
-      # ============================================
-      # 🎨 SETUP APP ICON
-      # ============================================
-      - name: 🎨 Setup App Icon dari assets yang tersedia
-        run: |
-          echo "=========================================="
-          echo "=== SETUP APP ICON ==="
-          echo "=========================================="
-          
-          ICON_SOURCE=""
-          
-          POSSIBLE_ICONS=(
-            "assets/images/logo.jpg"
-            "assets/images/otaxlogo.png"
-            "assets/icon/icon.jpg"
-            "assets/icon/icon.png"
-            "assets/icons/logo_foreground.png"
-            "lib/assets/icons/logo_foreground.png"
-            "icon.jpg"
-            "icon.png"
-          )
-          
-          for icon in "${POSSIBLE_ICONS[@]}"; do
-            if [ -f "$icon" ]; then
-              ICON_SOURCE="$icon"
-              echo "✅ Icon ditemukan: $ICON_SOURCE"
-              break
-            fi
-          done
-          
-          if [ -z "$ICON_SOURCE" ]; then
-            echo "⚠️ Membuat icon default..."
-            mkdir -p assets/icon
-            
-            if ! command -v convert >/dev/null 2>&1; then
-              sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
-            fi
-            
-            convert -size 1024x1024 gradient:'#1a73e8'-'#0d47a1' \
-              -fill white -font Helvetica -pointsize 400 \
-              -gravity center -annotate 0 "X" \
-              assets/icon/icon.jpg
-            
-            ICON_SOURCE="assets/icon/icon.jpg"
-            echo "✅ Icon default dibuat"
-          fi
-          
-          mkdir -p assets/icon
-          if [[ "$ICON_SOURCE" != assets/icon/* ]]; then
-            cp "$ICON_SOURCE" assets/icon/icon_source.${ICON_SOURCE##*.}
-          fi
-          
-          echo "📱 Icon source: $ICON_SOURCE"
-          
-          if ! command -v convert >/dev/null 2>&1; then
-            sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
-          fi
-          
-          echo "=== Generating Android Icons ==="
-          
-          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            mkdir -p "android/app/src/main/res/mipmap-$density"
-          done
-          
-          declare -A ICON_SIZES=(
-            [mdpi]=48 [hdpi]=72 [xhdpi]=96 [xxhdpi]=144 [xxxhdpi]=192
-          )
-          
-          declare -A ADAPTIVE_SIZES=(
-            [mdpi]=108 [hdpi]=162 [xhdpi]=216 [xxhdpi]=324 [xxxhdpi]=432
-          )
-          
-          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            size=${ICON_SIZES[$density]}
-            adaptive_size=${ADAPTIVE_SIZES[$density]}
-            
-            convert "$ICON_SOURCE" -resize "${size}x${size}" \
-              "android/app/src/main/res/mipmap-${density}/ic_launcher.png" 2>/dev/null && \
-              echo "✅ ic_launcher $density (${size}x${size})" || \
-              echo "⚠️ Gagal $density"
-            
-            convert "$ICON_SOURCE" -resize "${adaptive_size}x${adaptive_size}" \
-              -gravity center -background none -extent "${adaptive_size}x${adaptive_size}" \
-              "android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png" 2>/dev/null
-            
-            convert -size "${adaptive_size}x${adaptive_size}" gradient:'#1a73e8'-'#0d47a1' \
-              "android/app/src/main/res/mipmap-${density}/ic_launcher_background.png" 2>/dev/null || \
-            convert -size "${adaptive_size}x${adaptive_size}" xc:'#1a73e8' \
-              "android/app/src/main/res/mipmap-${density}/ic_launcher_background.png" 2>/dev/null
-          done
-          
-          ADAPTIVE_ICON_DIR="android/app/src/main/res/mipmap-anydpi-v26"
-          mkdir -p "$ADAPTIVE_ICON_DIR"
-          
-          cat > "$ADAPTIVE_ICON_DIR/ic_launcher.xml" << 'XMLEOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@mipmap/ic_launcher_background"/>
-              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-          </adaptive-icon>
-          XMLEOF
-          
-          cat > "$ADAPTIVE_ICON_DIR/ic_launcher_round.xml" << 'XMLEOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-              <background android:drawable="@mipmap/ic_launcher_background"/>
-              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-          </adaptive-icon>
-          XMLEOF
-          
-          echo "✅ App Icon setup complete!"
-          ls -lh android/app/src/main/res/mipmap-mdpi/ 2>/dev/null || true
-
-      # ============================================
-      # SETUP JAVA & FLUTTER
-      # ============================================
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -602,17 +168,266 @@ jobs:
           channel: 'stable'
           cache: true
 
-      # ============================================
-      # FIX ANDROID CONFIG
-      # ============================================
+      # ========== PERBAIKAN BARU: Setup Icon & Assets ==========
+      - name: 🎨 Setup App Icon dari assets/icon/icon.jpg
+        run: |
+          echo "=========================================="
+          echo "=== SETUP APP ICON ==="
+          echo "=========================================="
+          
+          # Cek apakah icon.jpg ada
+          ICON_SOURCE="assets/icon/icon.jpg"
+          if [ ! -f "$ICON_SOURCE" ]; then
+            echo "⚠️ $ICON_SOURCE tidak ditemukan, mencari icon di tempat lain..."
+            
+            # Cari icon di lokasi lain
+            for possible_icon in assets/icon/icon.png assets/icon.png icon.jpg icon.png; do
+              if [ -f "$possible_icon" ]; then
+                ICON_SOURCE="$possible_icon"
+                echo "✅ Icon ditemukan: $ICON_SOURCE"
+                break
+              fi
+            done
+          fi
+          
+          if [ ! -f "$ICON_SOURCE" ]; then
+            echo "⚠️ Tidak ada icon ditemukan, membuat icon default..."
+            
+            # Buat folder assets/icon jika belum ada
+            mkdir -p assets/icon
+            
+            # Generate icon default menggunakan ImageMagick atau buat placeholder
+            if command -v convert >/dev/null 2>&1; then
+              # Buat icon gradient biru sederhana
+              convert -size 1024x1024 gradient:blue-cyan \
+                -fill white -font Helvetica -pointsize 200 \
+                -gravity center -annotate 0 "X" \
+                assets/icon/icon.jpg
+              echo "✅ Icon default dibuat dengan ImageMagick"
+            else
+              # Install ImageMagick jika belum ada
+              echo "📦 Menginstall ImageMagick..."
+              sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+              
+              convert -size 1024x1024 gradient:blue-cyan \
+                -fill white -font Helvetica -pointsize 200 \
+                -gravity center -annotate 0 "X" \
+                assets/icon/icon.jpg
+              echo "✅ Icon default dibuat"
+            fi
+            ICON_SOURCE="assets/icon/icon.jpg"
+          fi
+          
+          echo "📱 Icon source: $ICON_SOURCE"
+          echo "📏 Icon size: $(du -h "$ICON_SOURCE" | cut -f1)"
+          
+          # Generate semua ukuran icon untuk Android
+          echo ""
+          echo "=== Generating Android Icons ==="
+          
+          # Buat folder mipmap untuk berbagai density
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "android/app/src/main/res/mipmap-$density"
+          done
+          
+          # Ukuran icon per density
+          declare -A ICON_SIZES
+          ICON_SIZES[mdpi]=48
+          ICON_SIZES[hdpi]=72
+          ICON_SIZES[xhdpi]=96
+          ICON_SIZES[xxhdpi]=144
+          ICON_SIZES[xxxhdpi]=192
+          
+          # Ukuran adaptive icon
+          declare -A ADAPTIVE_SIZES
+          ADAPTIVE_SIZES[mdpi]=108
+          ADAPTIVE_SIZES[hdpi]=162
+          ADAPTIVE_SIZES[xhdpi]=216
+          ADAPTIVE_SIZES[xxhdpi]=324
+          ADAPTIVE_SIZES[xxxhdpi]=432
+          
+          # Generate icon untuk setiap density
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            size=${ICON_SIZES[$density]}
+            adaptive_size=${ADAPTIVE_SIZES[$density]}
+            
+            # Regular icon (legacy)
+            convert "$ICON_SOURCE" -resize "${size}x${size}" \
+              "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
+            
+            # Adaptive icon - foreground
+            convert "$ICON_SOURCE" -resize "${adaptive_size}x${adaptive_size}" \
+              -gravity center -background none -extent "${adaptive_size}x${adaptive_size}" \
+              "android/app/src/main/res/mipmap-${density}/ic_launcher_foreground.png"
+            
+            # Adaptive icon - background (putih)
+            convert -size "${adaptive_size}x${adaptive_size}" xc:white \
+              "android/app/src/main/res/mipmap-${density}/ic_launcher_background.png"
+            
+            echo "✅ Generated icons for $density (${size}x${size})"
+          done
+          
+          # Buat juga adaptive icon XML jika belum ada
+          ADAPTIVE_ICON_DIR="android/app/src/main/res/mipmap-anydpi-v26"
+          mkdir -p "$ADAPTIVE_ICON_DIR"
+          
+          # ic_launcher.xml untuk adaptive icon
+          cat > "$ADAPTIVE_ICON_DIR/ic_launcher.xml" << 'XMLEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@mipmap/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          XMLEOF
+          echo "✅ Adaptive icon XML dibuat"
+          
+          # ic_launcher_round.xml
+          cat > "$ADAPTIVE_ICON_DIR/ic_launcher_round.xml" << 'XMLEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@mipmap/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          XMLEOF
+          echo "✅ Round icon XML dibuat"
+          
+          # Verifikasi
+          echo ""
+          echo "=== Icon Verification ==="
+          ls -lh android/app/src/main/res/mipmap-mdpi/
+          echo "---"
+          cat "$ADAPTIVE_ICON_DIR/ic_launcher.xml"
+          
+          echo ""
+          echo "✅ App Icon setup complete!"
+
+      # ========== PERBAIKAN BARU: Fix pubspec.yaml assets ==========
+      - name: 📋 Fix pubspec.yaml Asset References
+        run: |
+          echo "=========================================="
+          echo "=== FIX PUBSPEC.YAML ASSETS ==="
+          echo "=========================================="
+          
+          if [ ! -f pubspec.yaml ]; then
+            echo "❌ pubspec.yaml tidak ditemukan!"
+            exit 1
+          fi
+          
+          # Backup pubspec.yaml
+          cp pubspec.yaml pubspec.yaml.bak
+          
+          # Cek apakah assets section sudah ada
+          if ! grep -q "assets:" pubspec.yaml; then
+            echo "➕ Menambahkan assets section ke pubspec.yaml"
+            cat >> pubspec.yaml << 'EOF'
+
+          flutter:
+            assets:
+              - assets/icon/icon.jpg
+              - assets/icon/
+              - assets/images/
+              - assets/
+          EOF
+          else
+            # Cek apakah assets/icon/icon.jpg sudah terdaftar
+            if ! grep -q "assets/icon/icon.jpg" pubspec.yaml; then
+              echo "➕ Menambahkan assets/icon/icon.jpg ke pubspec.yaml"
+              
+              # Tambahkan setelah baris "assets:"
+              sed -i '/^flutter:/,/^[a-z]/{
+                /assets:/a\    - assets/icon/icon.jpg
+                /assets:/a\    - assets/icon/
+              }' pubspec.yaml
+            fi
+            
+            # Pastikan folder assets/ terdaftar
+            if ! grep -q "\- assets/" pubspec.yaml; then
+              echo "➕ Menambahkan folder assets/"
+              sed -i '/^flutter:/,/^[a-z]/{
+                /assets:/a\    - assets/
+              }' pubspec.yaml
+            fi
+          fi
+          
+          echo "--- pubspec.yaml (flutter section) ---"
+          sed -n '/^flutter:/,/^[a-z]/p' pubspec.yaml | head -20
+          
+          echo ""
+          echo "✅ pubspec.yaml fixed"
+
+      # ========== PERBAIKAN BARU: Buat folder & file assets yang diperlukan ==========
+      - name: 📁 Create Required Assets Structure
+        run: |
+          echo "=========================================="
+          echo "=== CREATE ASSETS STRUCTURE ==="
+          echo "=========================================="
+          
+          # Buat semua folder yang diperlukan
+          mkdir -p assets/icon
+          mkdir -p assets/images
+          mkdir -p assets/videos
+          mkdir -p assets/audio
+          mkdir -p assets/fonts
+          mkdir -p assets/icons
+          mkdir -p assets/animations
+          
+          # Buat file .gitkeep di setiap folder kosong
+          for dir in assets/*/; do
+            if [ -z "$(ls -A "$dir" 2>/dev/null)" ]; then
+              touch "$dir.gitkeep"
+            fi
+          done
+          
+          # Pastikan icon.jpg ada di assets/icon/
+          if [ ! -f "assets/icon/icon.jpg" ]; then
+            echo "⚠️ assets/icon/icon.jpg belum ada"
+            
+            # Cek apakah icon.jpg ada di root atau tempat lain
+            if [ -f "icon.jpg" ]; then
+              cp icon.jpg assets/icon/icon.jpg
+              echo "✅ icon.jpg dipindahkan ke assets/icon/"
+            elif [ -f "assets/icon.jpg" ]; then
+              cp assets/icon.jpg assets/icon/icon.jpg
+              echo "✅ icon.jpg disalin dari assets/"
+            else
+              echo "🔄 Membuat icon.jpg default..."
+              if command -v convert >/dev/null 2>&1; then
+                convert -size 1024x1024 gradient:blue-cyan \
+                  -fill white -pointsize 200 -gravity center \
+                  -annotate 0 "APK" assets/icon/icon.jpg
+              else
+                # Buat file JPEG minimal (1x1 pixel biru) menggunakan Python
+                python3 -c "
+          import base64
+          # Minimal valid JPEG (1x1 pixel biru)
+          jpeg_data = base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYI4Q/SFhSRFJiMlMyU2RTVIOj0oWSlBwdUVRFVWWFlJmZ3R1dnd4eXqCg4SFhoeIiYqLjI2Oj8TFxpeYmZqio8Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigD//2Q==')
+          with open('assets/icon/icon.jpg', 'wb') as f:
+              f.write(jpeg_data)
+          "
+              fi
+              echo "✅ icon.jpg default dibuat"
+            fi
+          fi
+          
+          # Verifikasi
+          echo ""
+          echo "=== Assets Structure ==="
+          find assets -type f -o -type d | sort
+          
+          echo ""
+          echo "✅ Assets structure created"
+
+      # ========== PERBAIKAN: Menghapus import R dan fix Namespace ==========
       - name: Fix Java and Namespace
         run: |
+          # Hapus import R karena jika package sama, import tidak diperlukan
           FILE_PATH="android/app/src/main/java/com/nullx/pp/SpyService.java"
           if [ -f "$FILE_PATH" ]; then
             sed -i '/import com.nullx.pp.R;/d' "$FILE_PATH"
             echo "✅ Import R dihapus"
           fi
           
+          # Pastikan namespace terpasang agar R ter-generate
           BUILD_GRADLE="android/app/build.gradle"
           if [ -f "$BUILD_GRADLE" ]; then
             if ! grep -q "namespace 'com.nullx.pp'" "$BUILD_GRADLE"; then
@@ -627,14 +442,22 @@ jobs:
           if [ -f "$BUILD_GRADLE" ]; then
             if grep -q "kotlin_version" "$BUILD_GRADLE"; then
               sed -i "s/ext\.kotlin_version = '[^']*'/ext.kotlin_version = '1.9.10'/" "$BUILD_GRADLE"
+              echo "kotlin_version patched ke 1.9.10"
             else
               sed -i "/buildscript {/a\\    ext.kotlin_version = '1.9.10'" "$BUILD_GRADLE"
+              echo "kotlin_version ditambahkan"
             fi
           fi
+          echo "--- android/build.gradle ---"
+          cat "$BUILD_GRADLE" 2>/dev/null || echo "(not found)"
 
       - name: 🔧 Fix minSdkVersion & AndroidManifest
         run: |
+          echo "=== Fixing all gradle files ==="
+          
+          # Fix semua build.gradle dan build.gradle.kts
           find android -name "build.gradle" -o -name "build.gradle.kts" | while read f; do
+            echo "Processing: $f"
             sed -i 's/minSdkVersion flutter.minSdkVersion/minSdkVersion 23/g' "$f"
             sed -i 's/minSdkVersion 21/minSdkVersion 23/g' "$f"
             sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/g' "$f"
@@ -643,19 +466,42 @@ jobs:
             sed -i 's/minSdk 21/minSdk 23/g' "$f"
           done
           
+          echo "=== All gradle files fixed ==="
+          grep -r "minSdk" android/ 2>/dev/null | head -10
+          
+          # Fix AndroidManifest.xml
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST" ]; then
+            echo "=== Fixing AndroidManifest ==="
+            
+            # Tambahkan xmlns:tools jika belum ada
             if ! grep -q "xmlns:tools" "$MANIFEST"; then
               sed -i 's/<manifest/<manifest xmlns:tools="http:\/\/schemas.android.com\/tools"/' "$MANIFEST"
+              echo "✅ xmlns:tools added"
             fi
+            
+            # Tambahkan overrideLibrary jika belum ada
             if ! grep -q "overrideLibrary" "$MANIFEST"; then
               sed -i 's/<application/<application\n        tools:overrideLibrary="com.llfbandit.record"/' "$MANIFEST"
+              echo "✅ overrideLibrary added"
             fi
+            
+            echo "--- AndroidManifest.xml ---"
+            head -12 "$MANIFEST"
           fi
 
-      - name: 🔧 Fix compileSdk & Java
+      - name: 🔧 Fix compileSdk, Assets & Java
         run: |
+          echo "=========================================="
+          echo "=== FIX 1: compileSdk ke 36 ==="
+          echo "=========================================="
+          
+          # Fix semua file gradle
           find android -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) | while read f; do
+            echo "=== Before: $f ==="
+            grep -n "compileSdk" "$f" || echo "(no compileSdk found)"
+            
+            # Ganti semua variasi compileSdk
             sed -i 's/compileSdkVersion\s*=\?\s*35/compileSdkVersion 36/g' "$f"
             sed -i 's/compileSdkVersion\s*=\?\s*34/compileSdkVersion 36/g' "$f"
             sed -i 's/compileSdkVersion\s*=\?\s*33/compileSdkVersion 36/g' "$f"
@@ -665,53 +511,191 @@ jobs:
             sed -i 's/compileSdk(35)/compileSdk(36)/g' "$f"
             sed -i 's/compileSdk(34)/compileSdk(36)/g' "$f"
             sed -i 's/compileSdk(33)/compileSdk(36)/g' "$f"
+            sed -i 's/compileSdk\s\+35/compileSdk 36/g' "$f"
+            sed -i 's/compileSdk\s\+34/compileSdk 36/g' "$f"
+            
+            echo "=== After: $f ==="
+            grep -n "compileSdk" "$f" || echo "(no compileSdk)"
           done
           
-          JAVA_FILE="android/app/src/main/java/com/nullx/pp/LockOverlayService.java"
-          if [ -f "$JAVA_FILE" ]; then
-            sed -i 's/InputType\.TYPE_NUMBER_PASSWORD/(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD)/g' "$JAVA_FILE"
-            if grep -q "TYPE_NUMBER_PASSWORD" "$JAVA_FILE"; then
-              sed -i 's/InputType\.TYPE_NUMBER_PASSWORD/129/g' "$JAVA_FILE"
-            fi
-            echo "✅ Java fixed"
+          # Juga fix di android/build.gradle
+          if [ -f android/build.gradle ]; then
+            sed -i 's/compileSdkVersion\s*=\?\s*35/compileSdkVersion 36/g' android/build.gradle
+            sed -i 's/compileSdk\s*=\?\s*35/compileSdk = 36/g' android/build.gradle
           fi
 
-      # ============================================
-      # BUILD
-      # ============================================
+          echo ""
+          echo "=========================================="
+          echo "=== FIX 2: Buat folder assets ==="
+          echo "=========================================="
+          
+          # Buat folder assets yang umum
+          for dir in assets assets/images assets/videos assets/audio assets/fonts assets/icons assets/icon assets/animations; do
+            if [ ! -d "$dir" ]; then
+              mkdir -p "$dir"
+              touch "$dir/.gitkeep"
+              echo "✅ Created: $dir/"
+            else
+              echo "✅ Exists: $dir/"
+            fi
+          done
+          
+          # Baca pubspec.yaml dan buat folder yang diperlukan
+          if [ -f pubspec.yaml ]; then
+            echo "Reading pubspec.yaml for assets..."
+            grep -E "^\s+-\s+" pubspec.yaml | sed 's/.*- //' | while read asset; do
+              # Hanya buat folder (yang berakhiran /)
+              if echo "$asset" | grep -q "/$"; then
+                if [ ! -d "$asset" ]; then
+                  mkdir -p "$asset"
+                  touch "$asset/.gitkeep"
+                  echo "✅ Created from pubspec: $asset"
+                fi
+              else
+                # Buat folder parent-nya
+                PARENT_DIR=$(dirname "$asset")
+                if [ "$PARENT_DIR" != "." ] && [ ! -d "$PARENT_DIR" ]; then
+                  mkdir -p "$PARENT_DIR"
+                  touch "$PARENT_DIR/.gitkeep"
+                  echo "✅ Created parent: $PARENT_DIR/"
+                fi
+                # Buat placeholder file
+                if [ ! -f "$asset" ]; then
+                  touch "$asset"
+                  echo "✅ Created placeholder: $asset"
+                fi
+              fi
+            done
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "=== FIX 3: Java InputType ==="
+          echo "=========================================="
+          
+          # Fix Java file
+          JAVA_FILE="android/app/src/main/java/com/nullx/pp/LockOverlayService.java"
+          if [ -f "$JAVA_FILE" ]; then
+            echo "Fixing: $JAVA_FILE"
+            # Backup
+            cp "$JAVA_FILE" "$JAVA_FILE.bak"
+            
+            # Ganti TYPE_NUMBER_PASSWORD
+            sed -i 's/InputType\.TYPE_NUMBER_PASSWORD/(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD)/g' "$JAVA_FILE"
+            
+            # Verifikasi
+            if grep -q "TYPE_NUMBER_PASSWORD" "$JAVA_FILE"; then
+              echo "❌ Fix failed, masih ada TYPE_NUMBER_PASSWORD"
+              # Cara alternatif: import yang benar
+              if ! grep -q "import android.text.InputType" "$JAVA_FILE"; then
+                sed -i '1s/^/import android.text.InputType;\n/' "$JAVA_FILE"
+              fi
+              # Ganti lagi dengan cara berbeda
+              sed -i 's/InputType\.TYPE_NUMBER_PASSWORD/129/g' "$JAVA_FILE"
+              echo "✅ Fixed with numeric value 129"
+            else
+              echo "✅ TYPE_NUMBER_PASSWORD fixed"
+            fi
+          else
+            echo "⚠️ LockOverlayService.java not found, searching..."
+            find android -name "*.java" -type f | while read f; do
+              if grep -l "TYPE_NUMBER_PASSWORD" "$f" 2>/dev/null; then
+                echo "Found in: $f"
+                sed -i 's/InputType\.TYPE_NUMBER_PASSWORD/(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD)/g' "$f"
+                echo "✅ Fixed: $f"
+              fi
+            done
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "=== ALL FIXES COMPLETE ==="
+          echo "=========================================="
+          
+          # Verifikasi akhir
+          echo ""
+          echo "=== Verification ==="
+          echo "compileSdk values:"
+          grep -rn "compileSdk" android/ 2>/dev/null | grep -v ".bak" | head -10
+          echo ""
+          echo "Asset directories:"
+          ls -d assets/*/ 2>/dev/null || echo "(no asset dirs)"
+          echo ""
+          echo "TYPE_NUMBER_PASSWORD occurrences:"
+          grep -rn "TYPE_NUMBER_PASSWORD" android/ 2>/dev/null || echo "✅ None found (FIXED!)"
+
       - name: Set Build Type
         id: build_info
         run: |
           BUILD_TYPE="${{ github.event.inputs.build_type }}"
-          [ -z "$BUILD_TYPE" ] && BUILD_TYPE="apk-debug"
+          if [ -z "$BUILD_TYPE" ]; then
+            BUILD_TYPE="apk-debug"
+          fi
           echo "build_type=$BUILD_TYPE" >> $GITHUB_OUTPUT
           echo "Build type: $BUILD_TYPE"
 
       - name: Fix Duplicate Icon Resources
         run: |
-          if ! command -v convert >/dev/null 2>&1; then
-            sudo apt-get update -y && sudo apt-get install -y imagemagick
-          fi
-          
+          NEED_CONVERT=0
           for dir in android/app/src/main/res/mipmap-*; do
             [ -d "$dir" ] || continue
             for base in ic_launcher ic_launcher_round ic_launcher_foreground; do
               jpg="$dir/$base.jpg"
               [ -f "$jpg" ] || continue
-              if [ -f "$dir/$base.png" ] || [ -f "$dir/$base.webp" ]; then
-                rm -f "$jpg"
-              else
-                convert "$jpg" "$dir/$base.png" && rm -f "$jpg" || true
+              if [ ! -f "$dir/$base.png" ] && [ ! -f "$dir/$base.webp" ]; then
+                NEED_CONVERT=1
               fi
             done
           done
-          echo "✅ Icon resources fixed"
 
+          if [ "$NEED_CONVERT" = "1" ] && ! command -v convert >/dev/null 2>&1; then
+            echo "📦 Installing ImageMagick (dibutuhkan untuk convert icon)..."
+            sudo apt-get update -y && sudo apt-get install -y imagemagick
+          fi
+
+          for dir in android/app/src/main/res/mipmap-*; do
+            [ -d "$dir" ] || continue
+            for base in ic_launcher ic_launcher_round ic_launcher_foreground; do
+              jpg="$dir/$base.jpg"
+              [ -f "$jpg" ] || continue
+
+              if [ -f "$dir/$base.png" ] || [ -f "$dir/$base.webp" ]; then
+                echo "🗑️ Hapus duplikat: $jpg (sudah ada format lain)"
+                rm -f "$jpg"
+              else
+                echo "🔄 Convert $jpg -> $base.png (icon ini cuma ada dalam .jpg)"
+                convert "$jpg" "$dir/$base.png"
+                if [ -f "$dir/$base.png" ]; then
+                  rm -f "$jpg"
+                else
+                  echo "⚠️ Convert gagal, biarkan $jpg apa adanya"
+                fi
+              fi
+            done
+          done
+          echo "✅ Icon resources checked & fixed"
+          ls android/app/src/main/res/mipmap-mdpi/ 2>/dev/null || true
+
+      # ========== PERBAIKAN BARU: Flutter Pub Get dengan retry ==========
       - name: Flutter Pub Get
         run: |
           flutter config --no-analytics
           dart --disable-analytics
-          flutter pub get || flutter pub upgrade
+          
+          echo "📦 Running flutter pub get..."
+          if ! flutter pub get 2>&1 | tee pub_get.log; then
+            echo "⚠️ Flutter pub get gagal, mencoba perbaikan..."
+            
+            # Cek error umum
+            if grep -q "Because .* depends on" pub_get.log; then
+              echo "🔧 Mencoba resolve dependency conflict..."
+              flutter pub upgrade
+            fi
+            
+            # Coba lagi
+            flutter pub get
+          fi
+          
           echo "✅ Flutter pub get selesai"
 
       - name: Build APK Debug
@@ -739,9 +723,6 @@ jobs:
             --split-debug-info=build/debug-info
           echo "AAB Release selesai"
 
-      # ============================================
-      # OUTPUT
-      # ============================================
       - name: Prepare Output Files
         run: |
           mkdir -p output
@@ -749,26 +730,28 @@ jobs:
           TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
           APP_NAME=$(grep '^name:' pubspec.yaml | awk '{print $2}' | tr -d '\r')
 
+          # Salin APK/AAB
           if [ "$BUILD_TYPE" = "apk-debug" ]; then
             APK_PATH=$(find build/app/outputs/flutter-apk -name "*.apk" | head -1)
             cp "$APK_PATH" "output/${APP_NAME}_debug_${TIMESTAMP}.apk"
+            echo "✅ APK Debug: ${APP_NAME}_debug_${TIMESTAMP}.apk"
           elif [ "$BUILD_TYPE" = "apk-release" ]; then
             APK_PATH=$(find build/app/outputs/flutter-apk -name "app-release.apk" | head -1)
             cp "$APK_PATH" "output/${APP_NAME}_release_${TIMESTAMP}.apk"
+            echo "✅ APK Release: ${APP_NAME}_release_${TIMESTAMP}.apk"
           elif [ "$BUILD_TYPE" = "aab-release" ]; then
             AAB_PATH=$(find build/app/outputs/bundle/release -name "*.aab" | head -1)
             cp "$AAB_PATH" "output/${APP_NAME}_release_${TIMESTAMP}.aab"
+            echo "✅ AAB Release: ${APP_NAME}_release_${TIMESTAMP}.aab"
           fi
           
-          # Copy icon untuk preview
-          for icon in assets/images/logo.jpg assets/images/otaxlogo.png assets/icon/icon.jpg; do
-            if [ -f "$icon" ]; then
-              cp "$icon" "output/app_icon.${icon##*.}"
-              echo "✅ App icon disalin ke output"
-              break
-            fi
-          done
+          # Salin juga icon untuk preview
+          if [ -f "assets/icon/icon.jpg" ]; then
+            cp assets/icon/icon.jpg output/app_icon.jpg
+            echo "✅ App icon disalin ke output"
+          fi
 
+          echo ""
           echo "📦 Output files:"
           ls -lh output/
 
@@ -788,7 +771,11 @@ jobs:
           echo "| Key | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| Build Type | ${{ steps.build_info.outputs.build_type }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Flutter Version | 3.32.8 |" >> $GITHUB_STEP_SUMMARY
+          echo "| Flutter Version | ${{ github.event.inputs.flutter_version != '' && github.event.inputs.flutter_version || '3.32.8 (default)' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Run Number | #${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Icon Source | assets/icon/icon.jpg |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 App Icon Preview" >> $GITHUB_STEP_SUMMARY
+          echo "App icon diambil dari \`assets/icon/icon.jpg\` dan otomatis di-generate untuk semua density Android." >> $GITHUB_STEP_SUMMARY
