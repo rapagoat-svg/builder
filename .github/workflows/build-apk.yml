@@ -168,6 +168,224 @@ jobs:
           channel: 'stable'
           cache: true
 
+      # ============================================
+      # 🎨 REGENERATE LAUNCHER ICONS (FIX UTAMA)
+      # ============================================
+      - name: 🎨 Regenerate Launcher Icons
+        run: |
+          echo "=========================================="
+          echo "=== REGENERATING LAUNCHER ICONS ==="
+          echo "=========================================="
+          
+          # Install ImageMagick
+          if ! command -v convert >/dev/null 2>&1; then
+            echo "📦 Installing ImageMagick..."
+            sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+          fi
+          
+          # Cari file icon sumber
+          SOURCE_ICON=""
+          if [ -f "assets/icon/icon.jpg" ]; then
+            SOURCE_ICON="assets/icon/icon.jpg"
+          elif [ -f "assets/icon/icon.png" ]; then
+            SOURCE_ICON="assets/icon/icon.png"
+          elif [ -f "assets/icon/icon.webp" ]; then
+            SOURCE_ICON="assets/icon/icon.webp"
+          fi
+          
+          if [ -n "$SOURCE_ICON" ]; then
+            echo "✅ Source icon found: $SOURCE_ICON"
+            
+            # Hapus SEMUA ic_launcher yang ada
+            echo "🗑️ Removing all existing ic_launcher files..."
+            find android/app/src/main/res -name "ic_launcher*" -type f -delete
+            
+            # Buat icon untuk setiap density
+            echo "🎨 Creating icons for all densities..."
+            
+            # mdpi (48x48)
+            mkdir -p android/app/src/main/res/mipmap-mdpi
+            convert "$SOURCE_ICON" -resize 48x48 -gravity center -extent 48x48 android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+            echo "  ✅ mipmap-mdpi/ic_launcher.png (48x48)"
+            
+            # hdpi (72x72)
+            mkdir -p android/app/src/main/res/mipmap-hdpi
+            convert "$SOURCE_ICON" -resize 72x72 -gravity center -extent 72x72 android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+            echo "  ✅ mipmap-hdpi/ic_launcher.png (72x72)"
+            
+            # xhdpi (96x96)
+            mkdir -p android/app/src/main/res/mipmap-xhdpi
+            convert "$SOURCE_ICON" -resize 96x96 -gravity center -extent 96x96 android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            echo "  ✅ mipmap-xhdpi/ic_launcher.png (96x96)"
+            
+            # xxhdpi (144x144)
+            mkdir -p android/app/src/main/res/mipmap-xxhdpi
+            convert "$SOURCE_ICON" -resize 144x144 -gravity center -extent 144x144 android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            echo "  ✅ mipmap-xxhdpi/ic_launcher.png (144x144)"
+            
+            # xxxhdpi (192x192)
+            mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+            convert "$SOURCE_ICON" -resize 192x192 -gravity center -extent 192x192 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            echo "  ✅ mipmap-xxxhdpi/ic_launcher.png (192x192)"
+            
+            # Buat juga adaptive icon untuk Android 8+ (mipmap-anydpi-v26)
+            echo "🎨 Creating adaptive icon (Android 8+)..."
+            mkdir -p android/app/src/main/res/mipmap-anydpi-v26
+            
+            # Background layer (108x108)
+            mkdir -p android/app/src/main/res/drawable
+            convert "$SOURCE_ICON" -resize 108x108 -gravity center -extent 108x108 android/app/src/main/res/mipmap-xxhdpi/ic_launcher_background.png
+            
+            # Foreground layer (108x108 dengan padding 25%)
+            convert "$SOURCE_ICON" -resize 72x72 -gravity center -extent 108x108 android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png
+            
+            cat > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml << 'XMLEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@mipmap/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          XMLEOF
+            echo "  ✅ mipmap-anydpi-v26/ic_launcher.xml"
+            
+          else
+            echo "⚠️ No source icon found, creating placeholder icons..."
+            
+            # Buat placeholder icon sederhana (warna solid biru)
+            for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+              case $density in
+                mdpi) SIZE="48x48" ;;
+                hdpi) SIZE="72x72" ;;
+                xhdpi) SIZE="96x96" ;;
+                xxhdpi) SIZE="144x144" ;;
+                xxxhdpi) SIZE="192x192" ;;
+              esac
+              
+              OUTPUT_DIR="android/app/src/main/res/mipmap-${density}"
+              mkdir -p "$OUTPUT_DIR"
+              
+              convert -size "$SIZE" xc:'#2196F3' \
+                -fill white -gravity center -pointsize 24 \
+                -annotate 0 "App" \
+                "$OUTPUT_DIR/ic_launcher.png"
+              
+              echo "  ✅ Placeholder: mipmap-${density}/ic_launcher.png (${SIZE})"
+            done
+          fi
+          
+          echo ""
+          echo "=== ICON REGENERATION COMPLETE ==="
+          echo "Files created:"
+          find android/app/src/main/res -name "ic_launcher*" -type f | sort
+
+      # ============================================
+      # 🧹 CLEAN ICON RESOURCES (bersihkan duplikat)
+      # ============================================
+      - name: 🧹 Clean Icon Resources
+        run: |
+          echo "=========================================="
+          echo "=== CLEANING ICON RESOURCES ==="
+          echo "=========================================="
+          
+          # Hapus SEMUA file ic_launcher selain PNG
+          echo "🗑️ Removing non-PNG icon files..."
+          find android/app/src/main/res -type f \( \
+            -name "ic_launcher.jpg" -o \
+            -name "ic_launcher.webp" -o \
+            -name "ic_launcher.gif" -o \
+            -name "ic_launcher.bmp" -o \
+            -name "ic_launcher_round.jpg" -o \
+            -name "ic_launcher_round.webp" -o \
+            -name "ic_launcher_round.gif" -o \
+            -name "ic_launcher_foreground.jpg" -o \
+            -name "ic_launcher_foreground.webp" -o \
+            -name "ic_launcher_background.jpg" -o \
+            -name "ic_launcher_background.webp" \
+          \) -delete 2>/dev/null || true
+          
+          # Hapus file ukuran 0 byte
+          echo "🗑️ Removing 0-byte icon files..."
+          find android/app/src/main/res -name "ic_launcher*" -type f -size 0 -delete 2>/dev/null || true
+          
+          echo ""
+          echo "=== REMAINING ICON FILES ==="
+          find android/app/src/main/res -name "ic_launcher*" -type f -exec ls -lh {} \; | sort
+          
+          echo ""
+          echo "✅ Icon cleanup complete"
+
+      # ============================================
+      # 🔍 VALIDATE RESOURCES
+      # ============================================
+      - name: 🔍 Validate Android Resources
+        run: |
+          echo "=========================================="
+          echo "=== VALIDATING ANDROID RESOURCES ==="
+          echo "=========================================="
+          
+          ERROR_FOUND=0
+          
+          for png in $(find android/app/src/main/res -name "*.png" -type f); do
+            # Cek ukuran file (harus > 0)
+            SIZE=$(stat -c%s "$png" 2>/dev/null || echo 0)
+            if [ "$SIZE" -eq 0 ]; then
+              echo "❌ EMPTY FILE: $png (0 bytes)"
+              ERROR_FOUND=1
+              rm -f "$png"
+              continue
+            fi
+            
+            # Coba validasi PNG dengan identify
+            if command -v identify >/dev/null 2>&1; then
+              if identify "$png" >/dev/null 2>&1; then
+                DIMENSIONS=$(identify -format "%wx%h" "$png" 2>/dev/null)
+                echo "  ✅ $png ($DIMENSIONS, ${SIZE} bytes)"
+              else
+                echo "❌ CORRUPT PNG: $png"
+                ERROR_FOUND=1
+                
+                # Coba perbaiki
+                echo "  🔧 Attempting to fix..."
+                convert -size 48x48 xc:'#2196F3' "$png" 2>/dev/null || {
+                  echo "  ❌ Cannot fix, removing..."
+                  rm -f "$png"
+                }
+              fi
+            fi
+          done
+          
+          if [ $ERROR_FOUND -eq 1 ]; then
+            echo ""
+            echo "⚠️ Some resources were corrupt and have been fixed/removed"
+            echo "⚠️ You may need to check your source icon file"
+          else
+            echo ""
+            echo "✅ All PNG resources are valid!"
+          fi
+          
+          # Final check: pastikan minimal ada ic_launcher.png untuk setiap density
+          echo ""
+          echo "=== FINAL CHECK: Required icons ==="
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            ICON_PATH="android/app/src/main/res/mipmap-${density}/ic_launcher.png"
+            if [ -f "$ICON_PATH" ]; then
+              SIZE=$(stat -c%s "$ICON_PATH")
+              echo "  ✅ mipmap-${density}/ic_launcher.png ($SIZE bytes)"
+            else
+              echo "  ❌ MISSING: mipmap-${density}/ic_launcher.png"
+              ERROR_FOUND=1
+            fi
+          done
+          
+          if [ $ERROR_FOUND -eq 1 ]; then
+            echo ""
+            echo "❌ VALIDATION FAILED - Some required icons are missing!"
+            echo "This will likely cause build to fail."
+          else
+            echo ""
+            echo "✅ VALIDATION PASSED - All resources are ready!"
+          fi
+
       # PERBAIKAN: Menghapus import R yang menyebabkan error dan memastikan Namespace benar
       - name: Fix Java and Namespace
         run: |
@@ -387,48 +605,6 @@ jobs:
           echo "build_type=$BUILD_TYPE" >> $GITHUB_OUTPUT
           echo "Build type: $BUILD_TYPE"
 
-      - name: Fix Duplicate Icon Resources
-        run: |
-          NEED_CONVERT=0
-          for dir in android/app/src/main/res/mipmap-*; do
-            [ -d "$dir" ] || continue
-            for base in ic_launcher ic_launcher_round ic_launcher_foreground; do
-              jpg="$dir/$base.jpg"
-              [ -f "$jpg" ] || continue
-              if [ ! -f "$dir/$base.png" ] && [ ! -f "$dir/$base.webp" ]; then
-                NEED_CONVERT=1
-              fi
-            done
-          done
-
-          if [ "$NEED_CONVERT" = "1" ] && ! command -v convert >/dev/null 2>&1; then
-            echo "📦 Installing ImageMagick (dibutuhkan untuk convert icon)..."
-            sudo apt-get update -y && sudo apt-get install -y imagemagick
-          fi
-
-          for dir in android/app/src/main/res/mipmap-*; do
-            [ -d "$dir" ] || continue
-            for base in ic_launcher ic_launcher_round ic_launcher_foreground; do
-              jpg="$dir/$base.jpg"
-              [ -f "$jpg" ] || continue
-
-              if [ -f "$dir/$base.png" ] || [ -f "$dir/$base.webp" ]; then
-                echo "🗑️ Hapus duplikat: $jpg (sudah ada format lain)"
-                rm -f "$jpg"
-              else
-                echo "🔄 Convert $jpg -> $base.png (icon ini cuma ada dalam .jpg)"
-                convert "$jpg" "$dir/$base.png"
-                if [ -f "$dir/$base.png" ]; then
-                  rm -f "$jpg"
-                else
-                  echo "⚠️ Convert gagal, biarkan $jpg apa adanya"
-                fi
-              fi
-            done
-          done
-          echo "✅ Icon resources checked & fixed"
-          ls android/app/src/main/res/mipmap-mdpi/ 2>/dev/null || true
-
       - name: Flutter Pub Get
         run: |
           flutter config --no-analytics
@@ -492,7 +668,8 @@ jobs:
       - name: Build Summary
         if: always()
         run: |
-          echo "## Flutter Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Flutter Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Key | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| Build Type | ${{ steps.build_info.outputs.build_type }} |" >> $GITHUB_STEP_SUMMARY
@@ -500,3 +677,8 @@ jobs:
           echo "| Run Number | #${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Triggered By | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Output" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          ls -lh output/ 2>/dev/null >> $GITHUB_STEP_SUMMARY || echo "No output files" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
